@@ -1,0 +1,2257 @@
+# ============================================================================
+# WeGo Voice Display — public configuration template (based on validated V5)
+# Hardware: Waveshare ESP32-S3-Touch-LCD-4.3 (800 x 480)
+# ============================================================================
+# QUICK START — CHANGE ONLY THE VALUES IN THE substitutions: BLOCK BELOW
+#
+# 1. Set thermostat_count to the number of climate devices you want to show
+#    (0 through 4). Set light_count to the number of lights/switches (0 through 8).
+# 2. For each USED thermostat slot, enter a friendly display name and the
+#    corresponding Home Assistant climate.* entity ID.
+# 3. For each USED light slot, enter a friendly display name and a Home
+#    Assistant light.* OR switch.* entity ID.
+# 4. Set weather_entity to your Home Assistant weather.* entity ID.
+# 5. Set the ESPHome device name and friendly name in esphome: below if desired.
+# 6. Keep the images/ folder alongside this YAML; the built-in graphics need it.
+# 7. Validate in ESPHome Device Builder, then install on your display.
+#
+# EXAMPLE: For 2 thermostats and 1 light, use thermostat_count: "2" and
+# light_count: "1"; fill in thermostat_1/2 and light_1 only.
+#
+# PUBLIC TEMPLATE: The entity IDs below are examples, NOT working devices.
+# Replace every USED entity ID with the matching ID from your Home Assistant.
+# The default example displays four thermostats and two lights/switches.
+# Change the counts to match your home. Keep the unused slot placeholders.
+#
+# UNUSED SLOTS: Leave the placeholders unchanged. Unused devices are hidden
+# from the UI and do not respond to touch. ESPHome still creates harmless
+# Home Assistant subscriptions for these slots; counts do NOT remove them
+# from the firmware. Keep counts as quoted strings (for substitutions).
+#
+# WALLPAPER: The online image has a placeholder URL below. Configure your
+# wallpaper URL using the device's Home Assistant controls; do not publish
+# a private image server URL in a public repository.
+# BACKLIGHT: Always On, Manual, Schedule, and Sunrise/Sunset settings are
+# available from the device's existing Home Assistant controls.
+#
+# ADVANCED: Everything after this setup section preserves the V4 logic.
+# Do not change the rendering, touch handlers, or thermostat debounce unless
+# you intend to modify functionality. Keep V4 as a known-good backup.
+# ============================================================================
+substitutions:
+  # ------------------- REQUIRED DEVICE COUNTS -------------------
+  thermostat_count: "4"  # 0–4 climate devices displayed
+  light_count: "2"       # 0–8 light/switch devices displayed
+
+  # ------------------- WEATHER -------------------
+  weather_entity: "weather.openweathermap"  # CHANGE to your weather.* ID
+
+  # ------------------- THERMOSTATS -------------------
+  # Fill slots consecutively from 1. Only the first thermostat_count show.
+  # All thermostat entity IDs must use the climate.* domain.
+  thermostat_1_name: "Living Room"
+  thermostat_1_entity: "climate.living_room"
+  thermostat_2_name: "Bedroom"
+  thermostat_2_entity: "climate.bedroom"
+  thermostat_3_name: "Office"
+  thermostat_3_entity: "climate.office"
+  thermostat_4_name: "Guest Room"
+  thermostat_4_entity: "climate.guest_room"
+
+  # ------------------- LIGHTS AND SWITCHES -------------------
+  # Fill slots consecutively from 1. Only the first light_count show.
+  # Both light.* and switch.* entity IDs are supported.
+  light_1_name: "Bedside Lamp"
+  light_1_entity: "light.bedside_lamp"
+  light_2_name: "Desk Lamp"
+  light_2_entity: "switch.desk_lamp"
+
+  # ------------------- UNUSED LIGHT SLOTS -------------------
+  # Safe placeholders. Leave unchanged unless increasing light_count.
+  light_3_name: "Light 3"
+  light_3_entity: "light.wego_unused_slot_3"
+  light_4_name: "Light 4"
+  light_4_entity: "light.wego_unused_slot_4"
+  light_5_name: "Light 5"
+  light_5_entity: "light.wego_unused_slot_5"
+  light_6_name: "Light 6"
+  light_6_entity: "light.wego_unused_slot_6"
+  light_7_name: "Light 7"
+  light_7_entity: "light.wego_unused_slot_7"
+  light_8_name: "Light 8"
+  light_8_entity: "light.wego_unused_slot_8"
+
+# ============================================================================
+# ADVANCED CONFIGURATION — validated V5 firmware behavior unchanged below this line.
+# ============================================================================
+
+# Board: Espressif ESP32-S3-DevKitC-1-N16R8V (16 MB Flash Quad, 8 MB PSRAM Octal)
+# Definition: definitions/boards/esp32-s3-devkitc1-n16r8/manifest.yaml
+   
+esphome:
+  name: wego-voice-display
+  friendly_name: WeGo Voice Display
+
+  on_boot:
+    priority: -100
+    then:
+      - delay: 1s
+      - component.update: main_display
+      - script.execute: apply_backlight_schedule
+      - delay: 29s
+      - script.execute: load_daily_wallpaper
+  
+esp32:
+  variant: esp32s3
+  flash_size: 16MB
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+i2c:
+  sda: GPIO8
+  scl: GPIO9
+  scan: true
+
+ch422g:
+  - id: ch422g_hub
+
+globals:
+  - id: backlight_mode_value
+    type: int
+    restore_value: yes
+    initial_value: '0'  # 0 Always On, 1 Manual, 2 Schedule, 3 Sunrise/Sunset
+  - id: backlight_temporary_wake
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: wallpaper_custom_mode
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+  - id: online_background_loaded
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: current_page
+    type: int
+    restore_value: no
+    initial_value: '0'
+  # ============================================================
+  # Thermostat pending setpoints
+  # ============================================================
+  - id: furnace_pending_temperature
+    type: float
+    restore_value: no
+    initial_value: 'NAN'
+
+  - id: pellet_pending_temperature
+    type: float
+    restore_value: no
+    initial_value: 'NAN'
+
+  - id: furnace_temperature_pending
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: pellet_temperature_pending
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: solarroom_pending_temperature
+    type: float
+    restore_value: no
+    initial_value: 'NAN'
+  - id: solarroom_temperature_pending
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: solarroom_pending_hvac_mode
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+  - id: solarroom_hvac_mode_pending
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: sunroom_pending_temperature
+    type: float
+    restore_value: no
+    initial_value: 'NAN'
+  - id: sunroom_temperature_pending
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: sunroom_pending_hvac_mode
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+  - id: sunroom_hvac_mode_pending
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: solarroom_pending_fan_mode
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+  - id: solarroom_fan_mode_pending
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: sunroom_pending_fan_mode
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+  - id: sunroom_fan_mode_pending
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: thermostat_button_pressed
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+    
+  # ============================================================
+  # Furnace operating mode and fan mode
+  # ============================================================
+  - id: furnace_pending_hvac_mode
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
+  - id: furnace_hvac_mode_pending
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: furnace_pending_fan_mode
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
+  - id: furnace_fan_mode_pending
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # ============================================================
+  # Pellet Stove operating mode and fan mode
+  # ============================================================
+  - id: pellet_pending_hvac_mode
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
+  - id: pellet_hvac_mode_pending
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: pellet_pending_fan_mode
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
+  - id: pellet_fan_mode_pending
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+    
+http_request:
+
+online_image:
+  - url: "https://example.com/wallpaper.jpg"
+    id: online_background
+    format: JPEG
+    type: RGB565
+    resize: 800x480
+
+    on_download_finished:
+      then:
+        - lambda: |-
+            id(online_background_loaded) = true;
+            ESP_LOGI("wallpaper", "Wallpaper downloaded successfully");
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 0;'
+            then:
+              - component.update: main_display
+
+    on_error:
+      then:
+        - lambda: |-
+            id(online_background_loaded) = false;
+            ESP_LOGW("wallpaper", "Wallpaper download failed - using built-in background");
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 0;'
+            then:
+              - component.update: main_display
+
+
+font:
+  - file: "gfonts://Roboto"
+    id: clock_font
+    size: 96
+
+  - file: "gfonts://Roboto"
+    id: date_font
+    size: 34
+
+  - file: "gfonts://Roboto"
+    id: weather_font
+    size: 48
+
+  - file: "gfonts://Roboto"
+    id: condition_font
+    size: 28
+
+  - file: "gfonts://Roboto"
+    id: button_font
+    size: 18
+  
+image:
+  - file: "images/mountain_background.jpg"
+    id: mountain_background
+    type: RGB565
+    resize: 800x480
+
+  - file: "images/home.png"
+    id: icon_home
+    type: RGB565
+    transparency: alpha_channel
+    resize: 48x48
+
+  - file: "images/cameras.png"
+    id: icon_cameras
+    type: RGB565
+    transparency: alpha_channel
+    resize: 48x48
+
+  - file: "images/climate.png"
+    id: icon_climate
+    type: RGB565
+    transparency: alpha_channel
+    resize: 48x48
+
+  - file: "images/lighting.png"
+    id: icon_lighting
+    type: RGB565
+    transparency: alpha_channel
+    resize: 48x48
+
+  - file: "images/more.png"
+    id: icon_more
+    type: RGB565
+    transparency: alpha_channel
+    resize: 48x48
+
+      # ============================================================
+  # Weather icons
+  # ============================================================
+
+  - file: "images/weather/sunny.png"
+    id: weather_sunny
+    type: RGB565
+    transparency: alpha_channel
+    resize: 72x72
+
+  - file: "images/weather/partlycloudy.png"
+    id: weather_partlycloudy
+    type: RGB565
+    transparency: alpha_channel
+    resize: 72x72
+
+  - file: "images/weather/cloudy.png"
+    id: weather_cloudy
+    type: RGB565
+    transparency: alpha_channel
+    resize: 72x72
+
+  - file: "images/weather/fog.png"
+    id: weather_fog
+    type: RGB565
+    transparency: alpha_channel
+    resize: 72x72
+
+  - file: "images/weather/hazy.png"
+    id: weather_hazy
+    type: RGB565
+    transparency: alpha_channel
+    resize: 72x72
+
+  - file: "images/weather/clear-night.png"
+    id: weather_clear_night
+    type: RGB565
+    transparency: alpha_channel
+    resize: 72x72
+
+  - file: "images/weather/partlycloudy-night.png"
+    id: weather_partlycloudy_night
+    type: RGB565
+    transparency: alpha_channel
+    resize: 72x72
+
+  - file: "images/weather/rainy.png"
+    id: weather_rainy
+    type: RGB565
+    transparency: alpha_channel
+    resize: 72x72
+
+  - file: "images/weather/pouring.png"
+    id: weather_pouring
+    type: RGB565
+    transparency: alpha_channel
+    resize: 72x72
+
+  - file: "images/weather/lightning.png"
+    id: weather_lightning
+    type: RGB565
+    transparency: alpha_channel
+    resize: 72x72
+
+  - file: "images/weather/snowy.png"
+    id: weather_snowy
+    type: RGB565
+    transparency: alpha_channel
+    resize: 72x72
+
+  - file: "images/weather/rainy-snowy.png"
+    id: weather_rainy_snowy
+    type: RGB565
+    transparency: alpha_channel
+    resize: 72x72
+
+  - file: "images/weather/snowy-rainy.png"
+    id: weather_snowy_rainy
+    type: RGB565
+    transparency: alpha_channel
+    resize: 72x72
+
+  - file: "images/weather/windy.png"
+    id: weather_windy
+    type: RGB565
+    transparency: alpha_channel
+    resize: 72x72
+
+  - file: "images/weather/gusty.png"
+    id: weather_gusty
+    type: RGB565
+    transparency: alpha_channel
+    resize: 72x72
+
+  - file: "images/weather/tornado.png"
+    id: weather_tornado
+    type: RGB565
+    transparency: alpha_channel
+    resize: 72x72
+
+  - file: "images/weather/dusty.png"
+    id: weather_dusty
+    type: RGB565
+    transparency: alpha_channel
+    resize: 72x72
+
+  - file: "images/weather/thunderstorm.png"
+    id: weather_thunderstorm
+    type: RGB565
+    transparency: alpha_channel
+    resize: 72x72
+    
+sensor:
+  - platform: homeassistant
+    id: weather_temperature
+    entity_id: ${weather_entity}
+    attribute: temperature
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 0;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: furnace_current_temperature
+    entity_id: ${thermostat_1_entity}
+    attribute: current_temperature
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 2 || id(current_page) == 3;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: pellet_current_temperature
+    entity_id: ${thermostat_2_entity}
+    attribute: current_temperature
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 2 || id(current_page) == 4;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: furnace_target_temperature
+    entity_id: ${thermostat_1_entity}
+    attribute: temperature
+
+    on_value:
+      then:
+        - lambda: |-
+            // Check whether Home Assistant confirmed our setpoint.
+            if (id(furnace_temperature_pending) &&
+                !isnan(id(furnace_pending_temperature)) &&
+                fabsf(x - id(furnace_pending_temperature)) < 0.1f) {
+
+              id(furnace_temperature_pending) = false;
+
+              ESP_LOGI("climate",
+                       "Furnace setpoint confirmed by Home Assistant: %.0f",
+                       x);
+            }
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 2 || id(current_page) == 3;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: pellet_target_temperature
+    entity_id: ${thermostat_2_entity}
+    attribute: temperature
+
+    on_value:
+      then:
+        - lambda: |-
+            // Check whether Home Assistant confirmed our setpoint.
+            if (id(pellet_temperature_pending) &&
+                !isnan(id(pellet_pending_temperature)) &&
+                fabsf(x - id(pellet_pending_temperature)) < 0.1f) {
+
+              id(pellet_temperature_pending) = false;
+
+              ESP_LOGI("climate",
+                       "Pellet Stove setpoint confirmed by Home Assistant: %.0f",
+                       x);
+            }
+    
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 2 || id(current_page) == 4;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: solarroom_current_temperature
+    entity_id: ${thermostat_3_entity}
+    attribute: current_temperature
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 2 || id(current_page) == 5;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: solarroom_target_temperature
+    entity_id: ${thermostat_3_entity}
+    attribute: temperature
+    on_value:
+      then:
+        - lambda: |-
+            if (id(solarroom_temperature_pending) &&
+                fabsf(x - id(solarroom_pending_temperature)) < 0.1f) {
+              id(solarroom_temperature_pending) = false;
+            }
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 2 || id(current_page) == 5;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: sunroom_current_temperature
+    entity_id: ${thermostat_4_entity}
+    attribute: current_temperature
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 2 || id(current_page) == 6;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: sunroom_target_temperature
+    entity_id: ${thermostat_4_entity}
+    attribute: temperature
+    on_value:
+      then:
+        - lambda: |-
+            if (id(sunroom_temperature_pending) &&
+                fabsf(x - id(sunroom_pending_temperature)) < 0.1f) {
+              id(sunroom_temperature_pending) = false;
+            }
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 2 || id(current_page) == 6;'
+            then:
+              - component.update: main_display
+binary_sensor:
+  - platform: homeassistant
+    id: light_1_state
+    entity_id: ${light_1_entity}
+    on_state:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 1;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: light_2_state
+    entity_id: ${light_2_entity}
+    on_state:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 1;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: light_3_state
+    entity_id: ${light_3_entity}
+    on_state:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 1;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: light_4_state
+    entity_id: ${light_4_entity}
+    on_state:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 1;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: light_5_state
+    entity_id: ${light_5_entity}
+    on_state:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 1;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: light_6_state
+    entity_id: ${light_6_entity}
+    on_state:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 1;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: light_7_state
+    entity_id: ${light_7_entity}
+    on_state:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 1;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: light_8_state
+    entity_id: ${light_8_entity}
+    on_state:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 1;'
+            then:
+              - component.update: main_display
+text_sensor:
+  - platform: homeassistant
+    id: ha_sun_state
+    entity_id: sun.sun
+    on_value:
+      then:
+        - script.execute: apply_backlight_schedule
+  - platform: homeassistant
+    id: weather_condition
+    entity_id: ${weather_entity}
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 0;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: furnace_hvac_action
+    entity_id: ${thermostat_1_entity}
+    attribute: hvac_action
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 2 || id(current_page) == 3;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: pellet_hvac_action
+    entity_id: ${thermostat_2_entity}
+    attribute: hvac_action
+
+  # ============================================================
+  # Furnace operating mode and fan mode
+  # ============================================================
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 2 || id(current_page) == 4;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: furnace_hvac_mode
+    entity_id: ${thermostat_1_entity}
+    on_value:
+      then:
+        - lambda: |-
+            if (id(furnace_hvac_mode_pending) && x == id(furnace_pending_hvac_mode)) {
+              id(furnace_hvac_mode_pending) = false;
+              ESP_LOGI("climate", "furnace_hvac_mode confirmed by Home Assistant: %s", x.c_str());
+            }
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 3;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: furnace_fan_mode
+    entity_id: ${thermostat_1_entity}
+    attribute: fan_mode
+    on_value:
+      then:
+        - lambda: |-
+            if (id(furnace_fan_mode_pending) && x == id(furnace_pending_fan_mode)) {
+              id(furnace_fan_mode_pending) = false;
+              ESP_LOGI("climate", "furnace_fan_mode confirmed by Home Assistant: %s", x.c_str());
+            }
+
+  # ============================================================
+  # Pellet Stove operating mode and fan mode
+  # ============================================================
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 3;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: pellet_hvac_mode
+    entity_id: ${thermostat_2_entity}
+    on_value:
+      then:
+        - lambda: |-
+            if (id(pellet_hvac_mode_pending) && x == id(pellet_pending_hvac_mode)) {
+              id(pellet_hvac_mode_pending) = false;
+              ESP_LOGI("climate", "pellet_hvac_mode confirmed by Home Assistant: %s", x.c_str());
+            }
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 4;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: pellet_fan_mode
+    entity_id: ${thermostat_2_entity}
+    attribute: fan_mode
+    on_value:
+      then:
+        - lambda: |-
+            if (id(pellet_fan_mode_pending) && x == id(pellet_pending_fan_mode)) {
+              id(pellet_fan_mode_pending) = false;
+              ESP_LOGI("climate", "pellet_fan_mode confirmed by Home Assistant: %s", x.c_str());
+            }
+    
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 4;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: solarroom_hvac_action
+    entity_id: ${thermostat_3_entity}
+    attribute: hvac_action
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 2 || id(current_page) == 5;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: solarroom_fan_mode
+    entity_id: ${thermostat_3_entity}
+    attribute: fan_mode
+    on_value:
+      then:
+        - lambda: |-
+            if (id(solarroom_fan_mode_pending) && x == id(solarroom_pending_fan_mode)) {
+              id(solarroom_fan_mode_pending) = false;
+            }
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 5;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: solarroom_hvac_mode
+    entity_id: ${thermostat_3_entity}
+    on_value:
+      then:
+        - lambda: |-
+            if (id(solarroom_hvac_mode_pending) && x == id(solarroom_pending_hvac_mode)) {
+              id(solarroom_hvac_mode_pending) = false;
+            }
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 5;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: sunroom_hvac_action
+    entity_id: ${thermostat_4_entity}
+    attribute: hvac_action
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 2 || id(current_page) == 6;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: sunroom_fan_mode
+    entity_id: ${thermostat_4_entity}
+    attribute: fan_mode
+    on_value:
+      then:
+        - lambda: |-
+            if (id(sunroom_fan_mode_pending) && x == id(sunroom_pending_fan_mode)) {
+              id(sunroom_fan_mode_pending) = false;
+            }
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 6;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: sunroom_hvac_mode
+    entity_id: ${thermostat_4_entity}
+    on_value:
+      then:
+        - lambda: |-
+            if (id(sunroom_hvac_mode_pending) && x == id(sunroom_pending_hvac_mode)) {
+              id(sunroom_hvac_mode_pending) = false;
+            }
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 6;'
+            then:
+              - component.update: main_display
+display:
+  - platform: mipi_rgb
+    model: ESP32-S3-TOUCH-LCD-4.3
+    id: main_display
+    rotation: 0
+    update_interval: never
+    lambda: |-
+      // ============================================================
+      // Lighting page
+      // ============================================================
+      if (id(current_page) == 1) {
+        it.fill(Color(20, 30, 40));
+
+        // Page title
+        it.print(30, 20, id(date_font), Color::WHITE,
+                 TextAlign::TOP_LEFT, "Lighting");
+
+        Color off_button = Color(36, 57, 79);
+        Color on_button  = Color(255, 210, 40);
+        Color off_text   = Color::WHITE;
+        Color on_text    = Color(30, 30, 30);
+
+        // Draw up to eight configured light/switch tiles, four per row.
+        const bool light_states[8] = {id(light_1_state).state, id(light_2_state).state, id(light_3_state).state, id(light_4_state).state, id(light_5_state).state, id(light_6_state).state, id(light_7_state).state, id(light_8_state).state};
+        const char *light_names[8] = {"${light_1_name}", "${light_2_name}", "${light_3_name}", "${light_4_name}", "${light_5_name}", "${light_6_name}", "${light_7_name}", "${light_8_name}"};
+        const int configured_lights = std::max(0, std::min(8, ${light_count}));
+        for (int i = 0; i < configured_lights; i++) {
+          const int col = i % 4;
+          const int row = i / 4;
+          const int x = 20 + col * 195;
+          const int y = 90 + row * 105;
+          Color bg = light_states[i] ? on_button : off_button;
+          Color fg = light_states[i] ? on_text : off_text;
+          it.filled_rectangle(x + 10, y, 160, 65, bg);
+          it.filled_rectangle(x, y + 10, 180, 45, bg);
+          it.filled_circle(x + 10, y + 10, 10, bg);
+          it.filled_circle(x + 170, y + 10, 10, bg);
+          it.filled_circle(x + 10, y + 55, 10, bg);
+          it.filled_circle(x + 170, y + 55, 10, bg);
+          it.print(x + 90, y + 32, id(button_font), fg,
+                   TextAlign::CENTER, light_names[i]);
+        }
+
+        // ==========================================================
+        // Home button
+        // ==========================================================
+        Color nav_button = Color(36, 57, 79);
+
+        it.filled_rectangle(30, 367, 120, 73, nav_button);
+        it.filled_rectangle(20, 377, 140, 53, nav_button);
+        it.filled_circle(30, 377, 10, nav_button);
+        it.filled_circle(150, 377, 10, nav_button);
+        it.filled_circle(30, 430, 10, nav_button);
+        it.filled_circle(150, 430, 10, nav_button);
+
+        it.image(66, 371, id(icon_home));
+        it.print(90, 425, id(button_font), Color::WHITE,
+                 TextAlign::CENTER, "Home");
+
+        return;
+      }
+
+      // ============================================================
+      // Climate overview - 3 columns x 2 rows
+      // ============================================================
+      if (id(current_page) == 2) {
+        it.fill(Color(20, 30, 40));
+
+        Color tile_color = Color(36, 57, 79);
+        Color heat_color = Color(255, 170, 60);
+        Color cool_color = Color(80, 190, 255);
+        Color idle_color = Color(180, 180, 180);
+
+        // Page title
+        it.print(30, 15, id(date_font), Color::WHITE,
+                 TextAlign::TOP_LEFT, "Climate");
+
+        // ============================================================
+        if (${thermostat_count} >= 1) {
+        // Furnace - Column 1, Row 1
+        // Tile: X 30-250, Y 78-205
+        // ============================================================
+        it.filled_rectangle(40, 78, 200, 127, tile_color);
+        it.filled_rectangle(30, 88, 220, 107, tile_color);
+        it.filled_circle(40, 88, 10, tile_color);
+        it.filled_circle(240, 88, 10, tile_color);
+        it.filled_circle(40, 195, 10, tile_color);
+        it.filled_circle(240, 195, 10, tile_color);
+
+        it.print(140, 87, id(button_font), Color::WHITE,
+                 TextAlign::TOP_CENTER, "${thermostat_1_name}");
+
+        if (!isnan(id(furnace_current_temperature).state)) {
+          it.printf(140, 108, id(weather_font), Color::WHITE,
+                    TextAlign::TOP_CENTER, "%.0f°",
+                    id(furnace_current_temperature).state);
+        }
+
+        if (!isnan(id(furnace_target_temperature).state)) {
+          it.printf(140, 161, id(button_font), Color::WHITE,
+                    TextAlign::TOP_CENTER, "Set %.0f°",
+                    id(furnace_target_temperature).state);
+        }
+
+        if (id(furnace_hvac_action).state == "heating") {
+          it.print(140, 182, id(button_font), heat_color,
+                   TextAlign::TOP_CENTER, "Heating");
+        } else if (id(furnace_hvac_action).state == "cooling") {
+          it.print(140, 182, id(button_font), cool_color,
+                   TextAlign::TOP_CENTER, "Cooling");
+        } else if (id(furnace_hvac_action).state == "off") {
+          it.print(140, 182, id(button_font), idle_color,
+                   TextAlign::TOP_CENTER, "Off");
+        } else {
+          it.print(140, 182, id(button_font), idle_color,
+                   TextAlign::TOP_CENTER, "Idle");
+        }
+
+        // ============================================================
+        if (${thermostat_count} >= 2) {
+        }
+
+        // Pellet Stove - Column 2, Row 1
+        // Tile: X 290-510, Y 78-205
+        // ============================================================
+        it.filled_rectangle(300, 78, 200, 127, tile_color);
+        it.filled_rectangle(290, 88, 220, 107, tile_color);
+        it.filled_circle(300, 88, 10, tile_color);
+        it.filled_circle(500, 88, 10, tile_color);
+        it.filled_circle(300, 195, 10, tile_color);
+        it.filled_circle(500, 195, 10, tile_color);
+
+        it.print(400, 87, id(button_font), Color::WHITE,
+                 TextAlign::TOP_CENTER, "${thermostat_2_name}");
+
+        if (!isnan(id(pellet_current_temperature).state)) {
+          it.printf(400, 108, id(weather_font), Color::WHITE,
+                    TextAlign::TOP_CENTER, "%.0f°",
+                    id(pellet_current_temperature).state);
+        }
+
+        if (!isnan(id(pellet_target_temperature).state)) {
+          it.printf(400, 161, id(button_font), Color::WHITE,
+                    TextAlign::TOP_CENTER, "Set %.0f°",
+                    id(pellet_target_temperature).state);
+        }
+
+        if (id(pellet_hvac_action).state == "heating") {
+          it.print(400, 182, id(button_font), heat_color,
+                   TextAlign::TOP_CENTER, "Heating");
+        } else if (id(pellet_hvac_action).state == "cooling") {
+          it.print(400, 182, id(button_font), cool_color,
+                   TextAlign::TOP_CENTER, "Cooling");
+        } else if (id(pellet_hvac_action).state == "off") {
+          it.print(400, 182, id(button_font), idle_color,
+                   TextAlign::TOP_CENTER, "Off");
+        } else {
+          it.print(400, 182, id(button_font), idle_color,
+                   TextAlign::TOP_CENTER, "Idle");
+        }
+
+        if (${thermostat_count} >= 3) {
+        }
+
+        // Solar Room - second row
+        it.filled_rectangle(40, 225, 200, 117, tile_color);
+        it.filled_rectangle(30, 235, 220, 97, tile_color);
+        it.filled_circle(40, 235, 10, tile_color);
+        it.filled_circle(240, 235, 10, tile_color);
+        it.filled_circle(40, 332, 10, tile_color);
+        it.filled_circle(240, 332, 10, tile_color);
+        it.print(140, 229, id(button_font), Color::WHITE,
+                 TextAlign::TOP_CENTER, "${thermostat_3_name}");
+        if (!isnan(id(solarroom_current_temperature).state)) {
+          it.printf(140, 251, id(weather_font), Color::WHITE,
+                    TextAlign::TOP_CENTER, "%.0f°", id(solarroom_current_temperature).state);
+        }
+        if (!isnan(id(solarroom_target_temperature).state)) {
+          it.printf(140, 302, id(button_font), Color::WHITE,
+                    TextAlign::TOP_CENTER, "Set %.0f°", id(solarroom_target_temperature).state);
+        }
+        std::string solarroom_status = id(solarroom_hvac_action).state;
+        Color solarroom_status_color = solarroom_status == "heating" ? heat_color :
+            (solarroom_status == "cooling" ? cool_color : idle_color);
+        it.printf(140, 321, id(button_font), solarroom_status_color,
+                  TextAlign::TOP_CENTER, "%s", solarroom_status.c_str());
+
+        if (${thermostat_count} >= 4) {
+        }
+
+        // Sunroom - second row
+        it.filled_rectangle(300, 225, 200, 117, tile_color);
+        it.filled_rectangle(290, 235, 220, 97, tile_color);
+        it.filled_circle(300, 235, 10, tile_color);
+        it.filled_circle(500, 235, 10, tile_color);
+        it.filled_circle(300, 332, 10, tile_color);
+        it.filled_circle(500, 332, 10, tile_color);
+        it.print(400, 229, id(button_font), Color::WHITE,
+                 TextAlign::TOP_CENTER, "${thermostat_4_name}");
+        if (!isnan(id(sunroom_current_temperature).state)) {
+          it.printf(400, 251, id(weather_font), Color::WHITE,
+                    TextAlign::TOP_CENTER, "%.0f°", id(sunroom_current_temperature).state);
+        }
+        if (!isnan(id(sunroom_target_temperature).state)) {
+          it.printf(400, 302, id(button_font), Color::WHITE,
+                    TextAlign::TOP_CENTER, "Set %.0f°", id(sunroom_target_temperature).state);
+        }
+        std::string sunroom_status = id(sunroom_hvac_action).state;
+        Color sunroom_status_color = sunroom_status == "heating" ? heat_color :
+            (sunroom_status == "cooling" ? cool_color : idle_color);
+        it.printf(400, 321, id(button_font), sunroom_status_color,
+                  TextAlign::TOP_CENTER, "%s", sunroom_status.c_str());
+
+        // ============================================================
+        }
+
+        // Reserved thermostat positions
+        // ============================================================
+        // Column 3, Row 1: X 550-770, Y 78-205
+        // Column 1, Row 2: X 30-250,  Y 215-342
+        // Column 2, Row 2: X 290-510, Y 215-342
+        // Column 3, Row 2: X 550-770, Y 215-342
+
+        // ============================================================
+        // Home button
+        // ============================================================
+        Color nav_button = Color(36, 57, 79);
+
+        it.filled_rectangle(30, 365, 120, 85, nav_button);
+        it.filled_rectangle(20, 375, 140, 65, nav_button);
+        it.filled_circle(30, 375, 10, nav_button);
+        it.filled_circle(150, 375, 10, nav_button);
+        it.filled_circle(30, 440, 10, nav_button);
+        it.filled_circle(150, 440, 10, nav_button);
+
+        // Icon above label
+        it.image(66, 369, id(icon_home));
+
+        it.print(90, 427, id(button_font), Color::WHITE,
+                 TextAlign::TOP_CENTER, "Home");
+
+        return;
+      }
+
+      // Shared thermostat detail renderer: pages 3-6.
+      if (id(current_page) >= 3 && id(current_page) <= 6 &&
+          id(current_page) - 3 < ${thermostat_count}) {
+        const int slot = id(current_page) - 3;
+        const char *names[] = {"${thermostat_1_name}", "${thermostat_2_name}",
+                               "${thermostat_3_name}", "${thermostat_4_name}"};
+        float current = NAN, target = NAN;
+        std::string status, mode, fan;
+        switch (slot) {
+          case 0:
+            current = id(furnace_current_temperature).state;
+            target = id(furnace_temperature_pending) ? id(furnace_pending_temperature) : id(furnace_target_temperature).state;
+            status = id(furnace_hvac_action).state;
+            mode = id(furnace_hvac_mode_pending) ? id(furnace_pending_hvac_mode) : id(furnace_hvac_mode).state;
+            fan = id(furnace_fan_mode_pending) ? id(furnace_pending_fan_mode) : id(furnace_fan_mode).state;
+            break;
+          case 1:
+            current = id(pellet_current_temperature).state;
+            target = id(pellet_temperature_pending) ? id(pellet_pending_temperature) : id(pellet_target_temperature).state;
+            status = id(pellet_hvac_action).state;
+            mode = id(pellet_hvac_mode_pending) ? id(pellet_pending_hvac_mode) : id(pellet_hvac_mode).state;
+            fan = id(pellet_fan_mode_pending) ? id(pellet_pending_fan_mode) : id(pellet_fan_mode).state;
+            break;
+          case 2:
+            current = id(solarroom_current_temperature).state;
+            target = id(solarroom_temperature_pending) ? id(solarroom_pending_temperature) : id(solarroom_target_temperature).state;
+            status = id(solarroom_hvac_action).state;
+            mode = id(solarroom_hvac_mode_pending) ? id(solarroom_pending_hvac_mode) : id(solarroom_hvac_mode).state;
+            fan = id(solarroom_fan_mode_pending) ? id(solarroom_pending_fan_mode) : id(solarroom_fan_mode).state;
+            break;
+          case 3:
+            current = id(sunroom_current_temperature).state;
+            target = id(sunroom_temperature_pending) ? id(sunroom_pending_temperature) : id(sunroom_target_temperature).state;
+            status = id(sunroom_hvac_action).state;
+            mode = id(sunroom_hvac_mode_pending) ? id(sunroom_pending_hvac_mode) : id(sunroom_hvac_mode).state;
+            fan = id(sunroom_fan_mode_pending) ? id(sunroom_pending_fan_mode) : id(sunroom_fan_mode).state;
+            break;
+        }
+        it.fill(Color(20, 30, 40));
+        const Color tile(36, 57, 79);
+        it.print(30, 20, id(date_font), Color::WHITE, TextAlign::TOP_LEFT, names[slot]);
+        it.print(40, 100, id(button_font), Color::WHITE, TextAlign::TOP_LEFT, "Current Temperature");
+        if (!isnan(current)) it.printf(40, 130, id(clock_font), Color::WHITE, TextAlign::TOP_LEFT, "%.0f°", current);
+        it.print(450, 100, id(button_font), Color::WHITE, TextAlign::TOP_LEFT, "Target Temperature");
+        if (!isnan(target)) it.printf(450, 140, id(weather_font), Color::WHITE, TextAlign::TOP_LEFT, "%.0f°", target);
+        it.filled_rectangle(400, 210, 85, 65, tile);
+        it.print(442, 242, id(weather_font), Color::WHITE, TextAlign::CENTER, "-");
+        it.filled_rectangle(585, 210, 85, 65, tile);
+        it.print(627, 242, id(weather_font), Color::WHITE, TextAlign::CENTER, "+");
+        Color status_color = status == "heating" ? Color(255, 170, 60) :
+                             (status == "cooling" ? Color(80, 190, 255) : Color(180, 180, 180));
+        it.printf(40, 305, id(condition_font), status_color, TextAlign::TOP_LEFT, "Status: %s", status.c_str());
+        const char *mode_label = mode == "heat_cool" ? "AUTO" :
+                                 (mode == "heat" ? "HEAT" : (mode == "cool" ? "COOL" : "OFF"));
+        Color mode_color = mode == "heat" ? Color(205, 110, 55) :
+                           (mode == "cool" ? Color(55, 120, 205) :
+                           (mode == "heat_cool" ? Color(55, 145, 100) : Color(90, 95, 105)));
+        it.filled_rectangle(400, 295, 125, 55, mode_color);
+        it.printf(462, 322, id(button_font), Color::WHITE, TextAlign::CENTER, "%s", mode_label);
+        it.filled_rectangle(540, 295, 130, 55, Color(65, 85, 115));
+        it.printf(605, 322, id(button_font), Color::WHITE, TextAlign::CENTER, "FAN %s", fan == "on" ? "ON" : "AUTO");
+        it.filled_rectangle(30, 370, 150, 65, tile);
+        it.print(105, 402, id(button_font), Color::WHITE, TextAlign::CENTER, "Back");
+        it.filled_rectangle(210, 370, 150, 65, tile);
+        it.print(285, 402, id(button_font), Color::WHITE, TextAlign::CENTER, "Home");
+        return;
+      }
+
+      if (id(online_background_loaded) && id(online_background).is_ready()) {
+        it.image(0, 0, id(online_background));
+      } else {
+        it.image(0, 0, id(mountain_background));
+      }
+
+      auto time = id(ha_time).now();
+      if (time.is_valid()) {
+        // Clock shadow
+        it.strftime(48, 48, id(clock_font), Color(30, 30, 30),
+                    TextAlign::TOP_LEFT, "%I:%M", time);
+
+        // Clock
+        it.strftime(45, 45, id(clock_font), Color::WHITE,
+                    TextAlign::TOP_LEFT, "%I:%M", time);
+
+        // Date shadow
+        it.strftime(53, 148, id(date_font), Color(30, 30, 30),
+                    TextAlign::TOP_LEFT, "%a, %b %e", time);
+
+        // Date
+        it.strftime(50, 145, id(date_font), Color::WHITE,
+                    TextAlign::TOP_LEFT, "%a, %b %e", time);
+      }
+
+      // Current temperature
+      if (!isnan(id(weather_temperature).state)) {
+        // Shadow
+        it.printf(603, 48, id(weather_font), Color(30, 30, 30),
+                  TextAlign::TOP_RIGHT, "%.0f°F",
+                  id(weather_temperature).state);
+
+        // White text
+        it.printf(600, 45, id(weather_font), Color::WHITE,
+                  TextAlign::TOP_RIGHT, "%.0f°F",
+                  id(weather_temperature).state);
+      }
+
+      // ============================================================
+      // Weather condition and icon
+      // ============================================================
+
+      if (id(weather_condition).has_state()) {
+
+        std::string condition = id(weather_condition).state;
+
+        // Choose weather icon
+        if (condition == "sunny") {
+          it.image(625, 30, id(weather_sunny));
+        }
+        else if (condition == "clear-night") {
+          it.image(625, 30, id(weather_clear_night));
+        }
+        else if (condition == "partlycloudy") {
+          it.image(625, 30, id(weather_partlycloudy));
+        }
+        else if (condition == "cloudy") {
+          it.image(625, 30, id(weather_cloudy));
+        }
+        else if (condition == "fog") {
+          it.image(625, 30, id(weather_fog));
+        }
+        else if (condition == "hazy") {
+          it.image(625, 30, id(weather_hazy));
+        }
+        else if (condition == "rainy") {
+          it.image(625, 30, id(weather_rainy));
+        }
+        else if (condition == "pouring") {
+          it.image(625, 30, id(weather_pouring));
+        }
+        else if (condition == "lightning") {
+          it.image(625, 30, id(weather_lightning));
+        }
+        else if (condition == "lightning-rainy") {
+          it.image(625, 30, id(weather_thunderstorm));
+        }
+        else if (condition == "snowy") {
+          it.image(625, 30, id(weather_snowy));
+        }
+        else if (condition == "snowy-rainy") {
+          it.image(625, 30, id(weather_snowy_rainy));
+        }
+        else if (condition == "windy") {
+          it.image(625, 30, id(weather_windy));
+        }
+        else if (condition == "windy-variant") {
+          it.image(625, 30, id(weather_gusty));
+        }
+        else if (condition == "exceptional") {
+          it.image(625, 30, id(weather_thunderstorm));
+        }
+
+        // Weather condition text
+        it.printf(763, 103, id(condition_font), Color(30, 30, 30),
+                  TextAlign::TOP_RIGHT, "%s",
+                  condition.c_str());
+
+        it.printf(760, 100, id(condition_font), Color::WHITE,
+                  TextAlign::TOP_RIGHT, "%s",
+                  condition.c_str());
+      }
+
+      // ============================================================
+      // Bottom navigation buttons
+      // 140px wide x 103px tall
+      // Button color sampled from reference: RGB(36, 57, 79)
+      // ============================================================
+
+      Color button_color = Color(36, 57, 79);
+
+      // ------------------------------------------------------------
+      // Home
+      // ------------------------------------------------------------
+      it.filled_rectangle(32, 347, 116, 103, button_color);
+      it.filled_rectangle(20, 359, 140, 79, button_color);
+      it.filled_circle(32, 359, 12, button_color);
+      it.filled_circle(148, 359, 12, button_color);
+      it.filled_circle(32, 438, 12, button_color);
+      it.filled_circle(148, 438, 12, button_color);
+
+      it.image(66, 357, id(icon_home));
+
+      it.print(90, 423, id(button_font), Color::WHITE,
+               TextAlign::CENTER, "Home");
+
+
+      // ------------------------------------------------------------
+      // Cameras
+      // ------------------------------------------------------------
+      it.filled_rectangle(187, 347, 116, 103, button_color);
+      it.filled_rectangle(175, 359, 140, 79, button_color);
+      it.filled_circle(187, 359, 12, button_color);
+      it.filled_circle(303, 359, 12, button_color);
+      it.filled_circle(187, 438, 12, button_color);
+      it.filled_circle(303, 438, 12, button_color);
+
+      it.image(221, 357, id(icon_cameras));
+
+      it.print(245, 423, id(button_font), Color::WHITE,
+               TextAlign::CENTER, "Cameras");
+
+
+      // ------------------------------------------------------------
+      // Climate
+      // ------------------------------------------------------------
+      it.filled_rectangle(342, 347, 116, 103, button_color);
+      it.filled_rectangle(330, 359, 140, 79, button_color);
+      it.filled_circle(342, 359, 12, button_color);
+      it.filled_circle(458, 359, 12, button_color);
+      it.filled_circle(342, 438, 12, button_color);
+      it.filled_circle(458, 438, 12, button_color);
+
+      it.image(376, 357, id(icon_climate));
+
+      it.print(400, 423, id(button_font), Color::WHITE,
+               TextAlign::CENTER, "Climate");
+
+
+      // ------------------------------------------------------------
+      // Lighting
+      // ------------------------------------------------------------
+      it.filled_rectangle(497, 347, 116, 103, button_color);
+      it.filled_rectangle(485, 359, 140, 79, button_color);
+      it.filled_circle(497, 359, 12, button_color);
+      it.filled_circle(613, 359, 12, button_color);
+      it.filled_circle(497, 438, 12, button_color);
+      it.filled_circle(613, 438, 12, button_color);
+
+      it.image(531, 357, id(icon_lighting));
+
+      it.print(555, 423, id(button_font), Color::WHITE,
+               TextAlign::CENTER, "Lighting");
+
+
+      // ------------------------------------------------------------
+      // More
+      // ------------------------------------------------------------
+      it.filled_rectangle(652, 347, 116, 103, button_color);
+      it.filled_rectangle(640, 359, 140, 79, button_color);
+      it.filled_circle(652, 359, 12, button_color);
+      it.filled_circle(768, 359, 12, button_color);
+      it.filled_circle(652, 438, 12, button_color);
+      it.filled_circle(768, 438, 12, button_color);
+
+      it.image(686, 357, id(icon_more));
+
+      it.print(710, 423, id(button_font), Color::WHITE,
+               TextAlign::CENTER, "More");
+
+# Configuration controls appear on the ESPHome device in Home Assistant.
+text:
+  - platform: template
+    name: "Wallpaper URL or Folder"
+    id: wallpaper_url_setting
+    entity_category: config
+    mode: text
+    optimistic: true
+    restore_value: true
+    max_length: 255
+    initial_value: ""
+    set_action:
+      - if:
+          condition:
+            lambda: 'return id(wallpaper_custom_mode);'
+          then:
+            - script.execute: load_daily_wallpaper
+  - platform: template
+    name: "Backlight ON Time (HH:MM)"
+    id: backlight_on_time
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    mode: text
+    max_length: 5
+    initial_value: "07:00"
+    set_action:
+      - script.execute: apply_backlight_schedule
+  - platform: template
+    name: "Backlight OFF Time (HH:MM)"
+    id: backlight_off_time
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    mode: text
+    max_length: 5
+    initial_value: "22:00"
+    set_action:
+      - script.execute: apply_backlight_schedule
+
+select:
+  - platform: template
+    name: "Wallpaper Mode"
+    id: wallpaper_mode_setting
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    options:
+      - "Daily Rotation"
+      - "Single Image"
+    initial_option: "Daily Rotation"
+    set_action:
+      - lambda: id(wallpaper_custom_mode) = (x == "Single Image");
+      - script.execute: load_daily_wallpaper
+  - platform: template
+    name: "Backlight Mode"
+    id: backlight_mode_setting
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    options:
+      - "Always On"
+      - "Manual"
+      - "Schedule"
+      - "Sunrise/Sunset"
+    initial_option: "Always On"
+    set_action:
+      - lambda: |-
+          if (x == "Always On") id(backlight_mode_value) = 0;
+          else if (x == "Manual") id(backlight_mode_value) = 1;
+          else if (x == "Schedule") id(backlight_mode_value) = 2;
+          else id(backlight_mode_value) = 3;
+          id(backlight_temporary_wake) = false;
+      - script.stop: temporary_backlight_wake
+      - script.execute: apply_backlight_schedule
+
+button:
+  - platform: template
+    name: "Refresh Wallpaper"
+    entity_category: config
+    on_press:
+      - script.execute: load_daily_wallpaper
+
+switch:
+  - platform: gpio
+    name: "Display Backlight"
+    id: display_backlight
+    entity_category: config
+    restore_mode: ALWAYS_ON
+    pin:
+      ch422g: ch422g_hub
+      number: 2
+      mode:
+        output: true
+      inverted: false
+
+script:
+  # Shared by startup, midnight rollover, and wallpaper settings.
+
+  - id: load_daily_wallpaper
+    mode: restart
+    then:
+      - lambda: |-
+          std::string base = id(wallpaper_url_setting).state;
+          // Remove trailing slashes from the configured folder URL.
+          while (!base.empty() && base.back() == '/') base.pop_back();
+          if (base.empty()) {
+            id(online_background_loaded) = false;
+            ESP_LOGW("wallpaper", "No wallpaper URL configured; using built-in mountain image");
+            id(main_display).update();
+            return;
+          }
+          std::string url = base;
+          if (!id(wallpaper_custom_mode)) {
+            auto now = id(ha_time).now();
+            if (!now.is_valid()) {
+              ESP_LOGW("wallpaper", "Time not valid yet; using built-in mountain image");
+              id(online_background_loaded) = false;
+              id(main_display).update();
+              return;
+            }
+            const char *days[] = {"", "sunday", "monday", "tuesday", "wednesday",
+                                  "thursday", "friday", "saturday"};
+            if (now.day_of_week < 1 || now.day_of_week > 7) return;
+            url += "/";
+            url += days[now.day_of_week];
+            url += ".jpg";
+          }
+          id(online_background_loaded) = false;
+          ESP_LOGI("wallpaper", "Loading wallpaper: %s", url.c_str());
+          id(online_background).set_url(url);
+          id(online_background).update();
+
+  # Evaluate the selected backlight policy on boot, changes, and each minute.
+  - id: apply_backlight_schedule
+    mode: restart
+    then:
+      - lambda: |-
+          if (id(backlight_temporary_wake)) return;
+          const int mode = id(backlight_mode_value);
+          if (mode == 1) return;  // Manual: leave the switch as the user set it.
+          bool desired_on = true;
+          if (mode == 2) {
+            auto now = id(ha_time).now();
+            if (!now.is_valid()) return;
+            int on_h = 7, on_m = 0, off_h = 22, off_m = 0;
+            auto on_text = id(backlight_on_time).state;
+            auto off_text = id(backlight_off_time).state;
+            if (sscanf(on_text.c_str(), "%d:%d", &on_h, &on_m) != 2 ||
+                sscanf(off_text.c_str(), "%d:%d", &off_h, &off_m) != 2 ||
+                on_h < 0 || on_h > 23 || off_h < 0 || off_h > 23 ||
+                on_m < 0 || on_m > 59 || off_m < 0 || off_m > 59) {
+              ESP_LOGW("backlight", "Invalid schedule time; use HH:MM (24-hour)");
+              return;
+            }
+            const int current = now.hour * 60 + now.minute;
+            const int start = on_h * 60 + on_m;
+            const int stop = off_h * 60 + off_m;
+            desired_on = (start == stop) ||
+                         (start < stop ? (current >= start && current < stop)
+                                       : (current >= start || current < stop));
+          } else if (mode == 3) {
+            auto sun = id(ha_sun_state).state;
+            if (sun != "above_horizon" && sun != "below_horizon") return;
+            desired_on = (sun == "above_horizon");
+          }
+          if (desired_on && !id(display_backlight).state) id(display_backlight).turn_on();
+          if (!desired_on && id(display_backlight).state) id(display_backlight).turn_off();
+
+  # Wake for 60 seconds; first touch is consumed and cannot press a control.
+  - id: temporary_backlight_wake
+    mode: restart
+    then:
+      - lambda: |-
+          id(backlight_temporary_wake) = true;
+          id(display_backlight).turn_on();
+      - delay: 60s
+      - lambda: id(backlight_temporary_wake) = false;
+      - script.execute: apply_backlight_schedule
+
+  - id: apply_solarroom_fan_mode
+    mode: restart
+    then:
+      - delay: 2s
+      - if:
+          condition:
+            lambda: 'return id(solarroom_fan_mode_pending);'
+          then:
+            - homeassistant.action:
+                action: climate.set_fan_mode
+                data:
+                  entity_id: ${thermostat_3_entity}
+                data_template:
+                  fan_mode: !lambda 'return id(solarroom_pending_fan_mode);'
+            - script.execute: solarroom_fan_confirmation_timeout
+  - id: solarroom_fan_confirmation_timeout
+    mode: restart
+    then:
+      - delay: 10s
+      - if:
+          condition:
+            lambda: 'return id(solarroom_fan_mode_pending);'
+          then:
+            - lambda: 'id(solarroom_fan_mode_pending) = false;'
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 5;'
+                then:
+                  - component.update: main_display
+
+  - id: apply_sunroom_fan_mode
+    mode: restart
+    then:
+      - delay: 2s
+      - if:
+          condition:
+            lambda: 'return id(sunroom_fan_mode_pending);'
+          then:
+            - homeassistant.action:
+                action: climate.set_fan_mode
+                data:
+                  entity_id: ${thermostat_4_entity}
+                data_template:
+                  fan_mode: !lambda 'return id(sunroom_pending_fan_mode);'
+            - script.execute: sunroom_fan_confirmation_timeout
+  - id: sunroom_fan_confirmation_timeout
+    mode: restart
+    then:
+      - delay: 10s
+      - if:
+          condition:
+            lambda: 'return id(sunroom_fan_mode_pending);'
+          then:
+            - lambda: 'id(sunroom_fan_mode_pending) = false;'
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 6;'
+                then:
+                  - component.update: main_display
+
+  - id: apply_solarroom_temperature
+    mode: restart
+    then:
+      - delay: 2s
+      - if:
+          condition:
+            lambda: 'return id(solarroom_temperature_pending) && !isnan(id(solarroom_pending_temperature));'
+          then:
+            - homeassistant.action:
+                action: climate.set_temperature
+                data:
+                  entity_id: ${thermostat_3_entity}
+                data_template:
+                  temperature: !lambda 'return id(solarroom_pending_temperature);'
+            - script.execute: solarroom_confirmation_timeout
+  - id: solarroom_confirmation_timeout
+    mode: restart
+    then:
+      - delay: 10s
+      - if:
+          condition:
+            lambda: 'return id(solarroom_temperature_pending);'
+          then:
+            - lambda: 'id(solarroom_temperature_pending) = false;'
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 5;'
+                then:
+                  - component.update: main_display
+  - id: apply_solarroom_hvac_mode
+    mode: restart
+    then:
+      - homeassistant.action:
+          action: climate.set_hvac_mode
+          data:
+            entity_id: ${thermostat_3_entity}
+          data_template:
+            hvac_mode: !lambda 'return id(solarroom_pending_hvac_mode);'
+      - delay: 10s
+      - lambda: 'id(solarroom_hvac_mode_pending) = false;'
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 5;'
+          then:
+            - component.update: main_display
+
+  - id: apply_sunroom_temperature
+    mode: restart
+    then:
+      - delay: 2s
+      - if:
+          condition:
+            lambda: 'return id(sunroom_temperature_pending) && !isnan(id(sunroom_pending_temperature));'
+          then:
+            - homeassistant.action:
+                action: climate.set_temperature
+                data:
+                  entity_id: ${thermostat_4_entity}
+                data_template:
+                  temperature: !lambda 'return id(sunroom_pending_temperature);'
+            - script.execute: sunroom_confirmation_timeout
+  - id: sunroom_confirmation_timeout
+    mode: restart
+    then:
+      - delay: 10s
+      - if:
+          condition:
+            lambda: 'return id(sunroom_temperature_pending);'
+          then:
+            - lambda: 'id(sunroom_temperature_pending) = false;'
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 6;'
+                then:
+                  - component.update: main_display
+  - id: apply_sunroom_hvac_mode
+    mode: restart
+    then:
+      - homeassistant.action:
+          action: climate.set_hvac_mode
+          data:
+            entity_id: ${thermostat_4_entity}
+          data_template:
+            hvac_mode: !lambda 'return id(sunroom_pending_hvac_mode);'
+      - delay: 10s
+      - lambda: 'id(sunroom_hvac_mode_pending) = false;'
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 6;'
+          then:
+            - component.update: main_display
+
+  - id: toggle_light_1
+    then:
+      - homeassistant.action:
+          action: homeassistant.toggle
+          data:
+            entity_id: ${light_1_entity}
+
+  - id: toggle_light_2
+    then:
+      - homeassistant.action:
+          action: homeassistant.toggle
+          data:
+            entity_id: ${light_2_entity}
+
+  - id: toggle_light_3
+    then:
+      - homeassistant.action:
+          action: homeassistant.toggle
+          data:
+            entity_id: ${light_3_entity}
+
+  - id: toggle_light_4
+    then:
+      - homeassistant.action:
+          action: homeassistant.toggle
+          data:
+            entity_id: ${light_4_entity}
+
+  - id: toggle_light_5
+    then:
+      - homeassistant.action:
+          action: homeassistant.toggle
+          data:
+            entity_id: ${light_5_entity}
+
+  - id: toggle_light_6
+    then:
+      - homeassistant.action:
+          action: homeassistant.toggle
+          data:
+            entity_id: ${light_6_entity}
+
+  - id: toggle_light_7
+    then:
+      - homeassistant.action:
+          action: homeassistant.toggle
+          data:
+            entity_id: ${light_7_entity}
+
+  - id: toggle_light_8
+    then:
+      - homeassistant.action:
+          action: homeassistant.toggle
+          data:
+            entity_id: ${light_8_entity}
+
+  # ============================================================
+  # Furnace temperature - 2 second debounce
+  # ============================================================
+  - id: apply_furnace_temperature
+    mode: restart
+    then:
+      - delay: 2s
+      - if:
+          condition:
+            lambda: 'return id(furnace_temperature_pending) && !isnan(id(furnace_pending_temperature));'
+          then:
+            - homeassistant.action:
+                action: climate.set_temperature
+                data:
+                  entity_id: ${thermostat_1_entity}
+                data_template:
+                  temperature: !lambda 'return id(furnace_pending_temperature);'
+                  
+            - script.execute: furnace_confirmation_timeout
+              
+            - lambda: |-
+                ESP_LOGI("climate", "Furnace setpoint sent: %.0f",
+                         id(furnace_pending_temperature));
+
+  # ============================================================
+  # Pellet Stove temperature - 2 second debounce
+  # ============================================================
+  - id: apply_pellet_temperature
+    mode: restart
+    then:
+      - delay: 2s
+      - if:
+          condition:
+            lambda: 'return id(pellet_temperature_pending) && !isnan(id(pellet_pending_temperature));'
+          then:
+            - homeassistant.action:
+                action: climate.set_temperature
+                data:
+                  entity_id: ${thermostat_2_entity}
+                data_template:
+                  temperature: !lambda 'return id(pellet_pending_temperature);'
+
+            - script.execute: pellet_confirmation_timeout
+
+            - lambda: |-
+                ESP_LOGI("climate", "Pellet Stove setpoint sent: %.0f",
+                         id(pellet_pending_temperature));
+
+  # ============================================================
+  # Furnace setpoint confirmation timeout
+  # ============================================================
+  - id: furnace_confirmation_timeout
+    mode: restart
+    then:
+      - delay: 10s
+      - if:
+          condition:
+            lambda: 'return id(furnace_temperature_pending);'
+          then:
+            - lambda: |-
+                ESP_LOGW("climate",
+                         "Furnace setpoint not confirmed - reverting display");
+
+                id(furnace_temperature_pending) = false;
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 3;'
+                then:
+                  - component.update: main_display
+
+  # ============================================================
+  # Pellet Stove setpoint confirmation timeout
+  # ============================================================
+  - id: pellet_confirmation_timeout
+    mode: restart
+    then:
+      - delay: 10s
+      - if:
+          condition:
+            lambda: 'return id(pellet_temperature_pending);'
+          then:
+            - lambda: |-
+                ESP_LOGW("climate",
+                         "Pellet Stove setpoint not confirmed - reverting display");
+
+                id(pellet_temperature_pending) = false;
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 4;'
+                then:
+                  - component.update: main_display
+
+  # ==========================================
+  # FURNACE - MODE
+  # ==========================================
+  - id: apply_furnace_hvac_mode
+    mode: restart
+    then:
+      - delay: 2s
+      - if:
+          condition:
+            lambda: 'return id(furnace_hvac_mode_pending);'
+          then:
+            - homeassistant.action:
+                action: climate.set_hvac_mode
+                data:
+                  entity_id: ${thermostat_1_entity}
+                data_template:
+                  hvac_mode: !lambda 'return id(furnace_pending_hvac_mode);'
+            - script.execute: furnace_hvac_confirmation_timeout
+            - lambda: |-
+                ESP_LOGI("climate", "Furnace MODE sent: %s",
+                         id(furnace_pending_hvac_mode).c_str());
+
+  # ==========================================
+  # FURNACE - FAN
+  # ==========================================
+  - id: apply_furnace_fan_mode
+    mode: restart
+    then:
+      - delay: 2s
+      - if:
+          condition:
+            lambda: 'return id(furnace_fan_mode_pending);'
+          then:
+            - homeassistant.action:
+                action: climate.set_fan_mode
+                data:
+                  entity_id: ${thermostat_1_entity}
+                data_template:
+                  fan_mode: !lambda 'return id(furnace_pending_fan_mode);'
+            - script.execute: furnace_fan_confirmation_timeout
+            - lambda: |-
+                ESP_LOGI("climate", "Furnace FAN sent: %s",
+                         id(furnace_pending_fan_mode).c_str());
+
+  # ==========================================
+  # PELLET STOVE - MODE
+  # ==========================================
+  - id: apply_pellet_hvac_mode
+    mode: restart
+    then:
+      - delay: 2s
+      - if:
+          condition:
+            lambda: 'return id(pellet_hvac_mode_pending);'
+          then:
+            - homeassistant.action:
+                action: climate.set_hvac_mode
+                data:
+                  entity_id: ${thermostat_2_entity}
+                data_template:
+                  hvac_mode: !lambda 'return id(pellet_pending_hvac_mode);'
+            - script.execute: pellet_hvac_confirmation_timeout
+            - lambda: |-
+                ESP_LOGI("climate", "Pellet Stove MODE sent: %s",
+                         id(pellet_pending_hvac_mode).c_str());
+
+  # ==========================================
+  # PELLET STOVE - FAN
+  # ==========================================
+  - id: apply_pellet_fan_mode
+    mode: restart
+    then:
+      - delay: 2s
+      - if:
+          condition:
+            lambda: 'return id(pellet_fan_mode_pending);'
+          then:
+            - homeassistant.action:
+                action: climate.set_fan_mode
+                data:
+                  entity_id: ${thermostat_2_entity}
+                data_template:
+                  fan_mode: !lambda 'return id(pellet_pending_fan_mode);'
+            - script.execute: pellet_fan_confirmation_timeout
+            - lambda: |-
+                ESP_LOGI("climate", "Pellet Stove FAN sent: %s",
+                         id(pellet_pending_fan_mode).c_str());
+                
+
+  # Revert unconfirmed MODE/FAN selections after 10 seconds.
+  - id: furnace_hvac_confirmation_timeout
+    mode: restart
+    then:
+      - delay: 10s
+      - if:
+          condition:
+            lambda: 'return id(furnace_hvac_mode_pending);'
+          then:
+            - lambda: |-
+                ESP_LOGW("climate", "furnace_hvac_confirmation_timeout not confirmed - reverting display");
+                id(furnace_hvac_mode_pending) = false;
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 3;'
+                then:
+                  - component.update: main_display
+
+  - id: furnace_fan_confirmation_timeout
+    mode: restart
+    then:
+      - delay: 10s
+      - if:
+          condition:
+            lambda: 'return id(furnace_fan_mode_pending);'
+          then:
+            - lambda: |-
+                ESP_LOGW("climate", "furnace_fan_confirmation_timeout not confirmed - reverting display");
+                id(furnace_fan_mode_pending) = false;
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 3;'
+                then:
+                  - component.update: main_display
+
+  - id: pellet_hvac_confirmation_timeout
+    mode: restart
+    then:
+      - delay: 10s
+      - if:
+          condition:
+            lambda: 'return id(pellet_hvac_mode_pending);'
+          then:
+            - lambda: |-
+                ESP_LOGW("climate", "pellet_hvac_confirmation_timeout not confirmed - reverting display");
+                id(pellet_hvac_mode_pending) = false;
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 4;'
+                then:
+                  - component.update: main_display
+
+  - id: pellet_fan_confirmation_timeout
+    mode: restart
+    then:
+      - delay: 10s
+      - if:
+          condition:
+            lambda: 'return id(pellet_fan_mode_pending);'
+          then:
+            - lambda: |-
+                ESP_LOGW("climate", "pellet_fan_confirmation_timeout not confirmed - reverting display");
+                id(pellet_fan_mode_pending) = false;
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 4;'
+                then:
+                  - component.update: main_display
+
+touchscreen:
+  - platform: gt911
+    id: main_touchscreen
+    display: main_display
+
+    interrupt_pin: GPIO4
+
+    reset_pin:
+      ch422g: ch422g_hub
+      number: 1
+
+    calibration:
+      x_min: 0
+      x_max: 800
+      y_min: 0
+      y_max: 480
+      
+    on_release:
+      - lambda: |-
+          id(thermostat_button_pressed) = false;
+          
+    on_touch:
+      - lambda: |-
+          // A touch while dark only wakes the backlight; never activates a button.
+          if (!id(display_backlight).state) {
+            id(temporary_backlight_wake).execute();
+            ESP_LOGI("touch", "Screen wake touch consumed");
+            return;
+          }
+          ESP_LOGI("touch", "Touched X=%d, Y=%d", touch.x, touch.y);
+
+           // Lighting: same hitboxes as the generated tile layout.
+           if (id(current_page) == 1) {
+             const int configured_lights = std::max(0, std::min(8, ${light_count}));
+             for (int i = 0; i < configured_lights; i++) {
+               int x = 20 + (i % 4) * 195;
+               int y = 90 + (i / 4) * 105;
+               if (touch.x >= x && touch.x <= x + 180 &&
+                   touch.y >= y && touch.y <= y + 65) {
+                 switch (i) {
+                   case 0: id(toggle_light_1).execute(); break;
+                   case 1: id(toggle_light_2).execute(); break;
+                   case 2: id(toggle_light_3).execute(); break;
+                   case 3: id(toggle_light_4).execute(); break;
+                   case 4: id(toggle_light_5).execute(); break;
+                   case 5: id(toggle_light_6).execute(); break;
+                   case 6: id(toggle_light_7).execute(); break;
+                   case 7: id(toggle_light_8).execute(); break;
+                 }
+                 return;
+               }
+             }
+           }
+
+          // ============================================================
+          // Thermostat detail page navigation
+          // ============================================================
+          // Shared thermostat touch handler for pages 3-6.
+          if (id(current_page) >= 3 && id(current_page) <= 6 &&
+              id(current_page) - 3 < ${thermostat_count}) {
+            const int slot = id(current_page) - 3;
+            if (touch.y >= 210 && touch.y <= 275 &&
+                ((touch.x >= 400 && touch.x <= 485) ||
+                 (touch.x >= 585 && touch.x <= 670))) {
+              float target = NAN;
+              switch (slot) {
+                case 0: target = id(furnace_temperature_pending) ? id(furnace_pending_temperature) : id(furnace_target_temperature).state; break;
+                case 1: target = id(pellet_temperature_pending) ? id(pellet_pending_temperature) : id(pellet_target_temperature).state; break;
+                case 2: target = id(solarroom_temperature_pending) ? id(solarroom_pending_temperature) : id(solarroom_target_temperature).state; break;
+                case 3: target = id(sunroom_temperature_pending) ? id(sunroom_pending_temperature) : id(sunroom_target_temperature).state; break;
+              }
+              if (isnan(target)) return;
+              target = touch.x <= 485 ? std::max(45.0f, target - 1.0f) : std::min(90.0f, target + 1.0f);
+              switch (slot) {
+                case 0:
+                  id(furnace_pending_temperature) = target;
+                  id(furnace_temperature_pending) = true;
+                  id(apply_furnace_temperature).execute();
+                  break;
+                case 1:
+                  id(pellet_pending_temperature) = target;
+                  id(pellet_temperature_pending) = true;
+                  id(apply_pellet_temperature).execute();
+                  break;
+                case 2:
+                  id(solarroom_pending_temperature) = target;
+                  id(solarroom_temperature_pending) = true;
+                  id(apply_solarroom_temperature).execute();
+                  break;
+                case 3:
+                  id(sunroom_pending_temperature) = target;
+                  id(sunroom_temperature_pending) = true;
+                  id(apply_sunroom_temperature).execute();
+                  break;
+              }
+              id(main_display).update();
+              return;
+            }
+            const bool mode_button = touch.x >= 400 && touch.x <= 525 && touch.y >= 295 && touch.y <= 350;
+            const bool fan_button = touch.x >= 540 && touch.x <= 670 && touch.y >= 295 && touch.y <= 350;
+            if (mode_button || fan_button) {
+              if (id(thermostat_button_pressed)) return;
+              id(thermostat_button_pressed) = true;
+              std::string previous;
+              switch (slot) {
+                case 0:
+                  previous = mode_button ? (id(furnace_hvac_mode_pending) ? id(furnace_pending_hvac_mode) : id(furnace_hvac_mode).state)
+                                         : (id(furnace_fan_mode_pending) ? id(furnace_pending_fan_mode) : id(furnace_fan_mode).state);
+                  break;
+                case 1:
+                  previous = mode_button ? (id(pellet_hvac_mode_pending) ? id(pellet_pending_hvac_mode) : id(pellet_hvac_mode).state)
+                                         : (id(pellet_fan_mode_pending) ? id(pellet_pending_fan_mode) : id(pellet_fan_mode).state);
+                  break;
+                case 2:
+                  previous = mode_button ? (id(solarroom_hvac_mode_pending) ? id(solarroom_pending_hvac_mode) : id(solarroom_hvac_mode).state)
+                                         : (id(solarroom_fan_mode_pending) ? id(solarroom_pending_fan_mode) : id(solarroom_fan_mode).state);
+                  break;
+                case 3:
+                  previous = mode_button ? (id(sunroom_hvac_mode_pending) ? id(sunroom_pending_hvac_mode) : id(sunroom_hvac_mode).state)
+                                         : (id(sunroom_fan_mode_pending) ? id(sunroom_pending_fan_mode) : id(sunroom_fan_mode).state);
+                  break;
+              }
+              std::string next = mode_button ? (previous == "off" ? "heat" :
+                                    (previous == "heat" ? "cool" :
+                                    (previous == "cool" ? "heat_cool" : "off")))
+                                    : (previous == "on" ? "auto" : "on");
+              switch (slot) {
+                case 0:
+                  if (mode_button) { id(furnace_pending_hvac_mode) = next; id(furnace_hvac_mode_pending) = true; id(apply_furnace_hvac_mode).execute(); }
+                  else { id(furnace_pending_fan_mode) = next; id(furnace_fan_mode_pending) = true; id(apply_furnace_fan_mode).execute(); }
+                  break;
+                case 1:
+                  if (mode_button) { id(pellet_pending_hvac_mode) = next; id(pellet_hvac_mode_pending) = true; id(apply_pellet_hvac_mode).execute(); }
+                  else { id(pellet_pending_fan_mode) = next; id(pellet_fan_mode_pending) = true; id(apply_pellet_fan_mode).execute(); }
+                  break;
+                case 2:
+                  if (mode_button) { id(solarroom_pending_hvac_mode) = next; id(solarroom_hvac_mode_pending) = true; id(apply_solarroom_hvac_mode).execute(); }
+                  else { id(solarroom_pending_fan_mode) = next; id(solarroom_fan_mode_pending) = true; id(apply_solarroom_fan_mode).execute(); }
+                  break;
+                case 3:
+                  if (mode_button) { id(sunroom_pending_hvac_mode) = next; id(sunroom_hvac_mode_pending) = true; id(apply_sunroom_hvac_mode).execute(); }
+                  else { id(sunroom_pending_fan_mode) = next; id(sunroom_fan_mode_pending) = true; id(apply_sunroom_fan_mode).execute(); }
+                  break;
+              }
+              id(main_display).update();
+              return;
+            }
+            if (touch.x >= 30 && touch.x <= 180 && touch.y >= 370 && touch.y <= 435) {
+              id(current_page) = 2; id(main_display).update(); return;
+            }
+            if (touch.x >= 210 && touch.x <= 360 && touch.y >= 370 && touch.y <= 435) {
+              id(current_page) = 0; id(main_display).update(); return;
+            }
+            return;
+          }
+
+          // ============================================================
+          // Climate thermostat selection
+          // ============================================================
+          if (id(current_page) == 2) {
+
+          // Solar Room / Sunroom tiles on second row
+          if (touch.y >= 225 && touch.y <= 342) {
+            if (touch.x >= 30 && touch.x <= 250) {
+              id(current_page) = 5;
+              id(main_display).update();
+              return;
+            }
+            if (touch.x >= 290 && touch.x <= 510) {
+              id(current_page) = 6;
+              id(main_display).update();
+              return;
+            }
+          }
+
+          // Furnace tile
+          if (touch.x >= 30 && touch.x <= 250 &&
+              touch.y >= 85 && touch.y <= 205) {
+            id(current_page) = 3;
+            id(main_display).update();
+            ESP_LOGI("touch", "FURNACE CONTROLS");
+            return;
+          }
+
+          // Pellet Stove tile
+          if (touch.x >= 290 && touch.x <= 510 &&
+              touch.y >= 85 && touch.y <= 205) {
+            id(current_page) = 4;
+            id(main_display).update();
+            ESP_LOGI("touch", "PELLET STOVE CONTROLS");
+            return;
+          }
+          }
+      
+          // Climate button
+          if (touch.x >= 330 && touch.x <= 470 &&
+            touch.y >= 347 && touch.y <= 450) {
+              id(current_page) = 2;
+              id(main_display).update();
+              ESP_LOGI("touch", "CLIMATE PAGE");
+              return;
+          }
+
+          // Home button
+          if (touch.x >= 20 && touch.x <= 160 &&
+              touch.y >= 347 && touch.y <= 450) {
+            id(current_page) = 0;
+            id(main_display).update();
+            ESP_LOGI("touch", "HOME PAGE");
+            return;
+          }
+
+          // Lighting button
+          if (touch.x >= 485 && touch.x <= 625 &&
+              touch.y >= 347 && touch.y <= 450) {
+            id(current_page) = 1;
+            id(main_display).update();
+            ESP_LOGI("touch", "LIGHTING PAGE");
+            return;
+          }
+          
+time:
+  - platform: homeassistant
+    id: ha_time
+    on_time:
+      # Change wallpaper exactly at local midnight.
+      - seconds: 0
+        minutes: 0
+        hours: 0
+        then:
+          - script.execute: load_daily_wallpaper
+      - seconds: 0
+        minutes: /1
+        then:
+          - script.execute: apply_backlight_schedule
+          - if:
+              condition:
+                lambda: 'return id(current_page) == 0;'
+              then:
+                - component.update: main_display
+    
+logger:

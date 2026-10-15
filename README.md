@@ -1,5 +1,5 @@
 # WeGo Voice Display
-
+![WeGo Voice Display Home Screen](screenshots/home-screen.png)
 A touchscreen Home Assistant dashboard for the **Waveshare ESP32-S3-Touch-LCD-4.3 (800 × 480)**, built with ESPHome.
 
 > **Status: Release candidate documentation draft.** The private V4 configuration was tested on hardware, and the V5 configuration passed ESPHome validation. A public-ready configuration and complete graphics bundle have **not** yet been assembled or tested.

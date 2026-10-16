@@ -22,6 +22,13 @@ A touchscreen Home Assistant dashboard for the **Waveshare ESP32-S3-Touch-LCD-4.
 
 Developed and validated using ESPHome **2026.9.x**. Other versions are not yet verified.
 
+⚠️ CRITICAL — SEN66 I²C Cable Wiring
+
+Do not connect an off-the-shelf I²C cable between the Waveshare ESP32-S3-Touch-LCD-4.3 and the Adafruit SEN66 adapter without verifying the pinout.
+The connector pin arrangements may differ. The cable must be wired so that 3.3V connects to 3.3V, GND connects to GND, SDA connects to SDA, and SCL connects to SCL.
+Incorrect wiring, particularly reversing power and ground, can permanently damage the hardware.
+Verify all four connections with a multimeter before applying power.
+
 ## Repository layout (planned)
 
 ```text

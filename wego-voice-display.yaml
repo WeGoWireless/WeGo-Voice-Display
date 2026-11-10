@@ -1,8 +1,22 @@
 # ============================================================================
-# WeGo Voice Display — public configuration template (based on validated V5)
+# WeGo Voice Display — V7.6 public release candidate (single-file ESPHome YAML)
 # Hardware: Waveshare ESP32-S3-Touch-LCD-4.3 (800 x 480)
 # ============================================================================
-# QUICK START — CHANGE ONLY THE VALUES IN THE substitutions: BLOCK BELOW
+# QUICK START — Edit the USER SETTINGS under substitutions below.
+# 1. Choose a unique device_name (lowercase letters, numbers, hyphens).
+# 2. Set thermostat_count (0–4) and light_count (0–8). Default: 0.
+# 3. For enabled slots, enter your Home Assistant climate.*, light.* or
+#    switch.* entity IDs. All systems differ; unsupported HVAC/fan modes
+#    may not work on every thermostat.
+# 4. Set your weather.* entity, or leave the placeholder until configured.
+# 5. Optional SEN66 requires physical sensor wiring; enable only if installed.
+# 6. Create local ESPHome secrets for Wi-Fi/API/OTA; never commit secrets.yaml.
+# 7. Keep images/ alongside this YAML. Validate in ESPHome Builder before flashing.
+# 8. Alarm and calendar features require Home Assistant helpers; see README.
+# NOTE: Counts hide unused UI slots, but HA subscriptions still exist.
+# NOTE: The wallpaper URL is a public placeholder; configure your own.
+# ============================================================================
+substitutions: BELOW
 #
 # 1. Set thermostat_count to the number of climate devices you want to show
 #    (0 through 4). Set light_count to the number of lights/switches (0 through 8).
@@ -18,10 +32,10 @@
 # EXAMPLE: For 2 thermostats and 1 light, use thermostat_count: "2" and
 # light_count: "1"; fill in thermostat_1/2 and light_1 only.
 #
-# PUBLIC TEMPLATE: The entity IDs below are examples, NOT working devices.
-# Replace every USED entity ID with the matching ID from your Home Assistant.
-# The default example displays four thermostats and two lights/switches.
-# Change the counts to match your home. Keep the unused slot placeholders.
+# IMPORTANT — THIS FILE CONTAINS TESTED EXAMPLE ENTITY IDS FROM THE ORIGINAL
+# INSTALLATION. REPLACE ALL USED ENTITY IDS WITH YOUR OWN BEFORE INSTALLING.
+# The example names and IDs are intentionally retained in this V5 test build
+# to avoid changing any functionality from the hardware-tested V4.
 #
 # UNUSED SLOTS: Leave the placeholders unchanged. Unused devices are hidden
 # from the UI and do not respond to touch. ESPHome still creates harmless
@@ -39,32 +53,46 @@
 # you intend to modify functionality. Keep V4 as a known-good backup.
 # ============================================================================
 substitutions:
+  # ------------------- DEVICE IDENTITY -------------------
+  # Change these before first flash if you have multiple displays.
+  device_name: "wego-voice-display"
+  friendly_name: "WeGo Voice Display"
+
+  # ------------------- OPTIONAL AIR QUALITY SENSOR -------------------
+  # Set to true only when the SEN66 is physically connected.
+  # More opens a menu for Air Quality, Alarm, and future features.
+  sen66_enabled: false
+
   # ------------------- REQUIRED DEVICE COUNTS -------------------
-  thermostat_count: "4"  # 0–4 climate devices displayed
-  light_count: "2"       # 0–8 light/switch devices displayed
+  thermostat_count: "0"  # 0–4 climate devices displayed
+  light_count: "0"       # 0–8 light/switch devices displayed
+
+  # ------------------- WAKE-UP ALARM -------------------
+  alarm_active_entity: "input_boolean.wake_up_alarm_active"
+  alarm_time_entity: "input_datetime.wake_up_alarm"
 
   # ------------------- WEATHER -------------------
-  weather_entity: "weather.openweathermap"  # CHANGE to your weather.* ID
+  weather_entity: "weather.home"  # CHANGE to your weather.* ID
 
   # ------------------- THERMOSTATS -------------------
   # Fill slots consecutively from 1. Only the first thermostat_count show.
   # All thermostat entity IDs must use the climate.* domain.
-  thermostat_1_name: "Living Room"
-  thermostat_1_entity: "climate.living_room"
-  thermostat_2_name: "Bedroom"
-  thermostat_2_entity: "climate.bedroom"
-  thermostat_3_name: "Office"
-  thermostat_3_entity: "climate.office"
-  thermostat_4_name: "Guest Room"
-  thermostat_4_entity: "climate.guest_room"
+  thermostat_1_name: "Thermostat 1"
+  thermostat_1_entity: "climate.wego_unused_slot_1"
+  thermostat_2_name: "Thermostat 2"
+  thermostat_2_entity: "climate.wego_unused_slot_2"
+  thermostat_3_name: "Thermostat 3"
+  thermostat_3_entity: "climate.wego_unused_slot_3"
+  thermostat_4_name: "Thermostat 4"
+  thermostat_4_entity: "climate.wego_unused_slot_4"
 
   # ------------------- LIGHTS AND SWITCHES -------------------
   # Fill slots consecutively from 1. Only the first light_count show.
   # Both light.* and switch.* entity IDs are supported.
-  light_1_name: "Bedside Lamp"
-  light_1_entity: "light.bedside_lamp"
-  light_2_name: "Desk Lamp"
-  light_2_entity: "switch.desk_lamp"
+  light_1_name: "Light 1"
+  light_1_entity: "light.wego_unused_slot_1"
+  light_2_name: "Light 2"
+  light_2_entity: "light.wego_unused_slot_2"
 
   # ------------------- UNUSED LIGHT SLOTS -------------------
   # Safe placeholders. Leave unchanged unless increasing light_count.
@@ -81,16 +109,498 @@ substitutions:
   light_8_name: "Light 8"
   light_8_entity: "light.wego_unused_slot_8"
 
+  # ================================================================
+  # INTERNAL OPTIONAL PACKAGES — DO NOT EDIT (below user settings)
+  # ================================================================
+  # This inline package is merged only when sen66_enabled is true.
+  sen66_package:
+    sensor:
+      - platform: sen6x
+        id: sen66_air_quality
+        address: 0x6B
+        update_interval: 30s
+        temperature:
+          name: "SEN66 Temperature"
+          id: sen66_temperature
+          on_value:
+            then:
+              - if:
+                  condition:
+                    lambda: 'return id(current_page) == 7 || id(current_page) == 0;'
+                  then:
+                    - component.update: main_display
+        humidity:
+          name: "SEN66 Humidity"
+          id: sen66_humidity
+          on_value:
+            then:
+              - if:
+                  condition:
+                    lambda: 'return id(current_page) == 7;'
+                  then:
+                    - component.update: main_display
+        co2:
+          name: "SEN66 CO2"
+          id: sen66_co2
+          on_value:
+            then:
+              - if:
+                  condition:
+                    lambda: 'return id(current_page) == 7;'
+                  then:
+                    - component.update: main_display
+        pm_1_0:
+          name: "SEN66 PM1.0"
+          id: sen66_pm1
+          on_value:
+            then:
+              - if:
+                  condition:
+                    lambda: 'return id(current_page) == 7;'
+                  then:
+                    - component.update: main_display
+        pm_2_5:
+          name: "SEN66 PM2.5"
+          id: sen66_pm25
+          on_value:
+            then:
+              - if:
+                  condition:
+                    lambda: 'return id(current_page) == 7;'
+                  then:
+                    - component.update: main_display
+        pm_4_0:
+          name: "SEN66 PM4.0"
+          id: sen66_pm4
+          on_value:
+            then:
+              - if:
+                  condition:
+                    lambda: 'return id(current_page) == 7;'
+                  then:
+                    - component.update: main_display
+        pm_10_0:
+          name: "SEN66 PM10"
+          id: sen66_pm10
+          on_value:
+            then:
+              - if:
+                  condition:
+                    lambda: 'return id(current_page) == 7;'
+                  then:
+                    - component.update: main_display
+        voc:
+          name: "SEN66 VOC Index"
+          id: sen66_voc
+          on_value:
+            then:
+              - if:
+                  condition:
+                    lambda: 'return id(current_page) == 7;'
+                  then:
+                    - component.update: main_display
+        nox:
+          name: "SEN66 NOx Index"
+          id: sen66_nox
+          on_value:
+            then:
+              - if:
+                  condition:
+                    lambda: 'return id(current_page) == 7;'
+                  then:
+                    - component.update: main_display
+
+    number:
+      - platform: template
+        name: "CO2 Caution Threshold"
+        id: aq_co2_caution
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 5000
+        step: 1
+        initial_value: 1000
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "CO2 Bad Threshold"
+        id: aq_co2_bad
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 5000
+        step: 1
+        initial_value: 1500
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "PM1.0 Caution Threshold"
+        id: aq_pm1_caution
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 1000
+        step: 0.1
+        initial_value: 10
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "PM1.0 Bad Threshold"
+        id: aq_pm1_bad
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 1000
+        step: 0.1
+        initial_value: 25
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "PM2.5 Caution Threshold"
+        id: aq_pm25_caution
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 1000
+        step: 0.1
+        initial_value: 9
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "PM2.5 Bad Threshold"
+        id: aq_pm25_bad
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 1000
+        step: 0.1
+        initial_value: 35.5
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "PM4.0 Caution Threshold"
+        id: aq_pm4_caution
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 1000
+        step: 0.1
+        initial_value: 15
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "PM4.0 Bad Threshold"
+        id: aq_pm4_bad
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 1000
+        step: 0.1
+        initial_value: 50
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "PM10 Caution Threshold"
+        id: aq_pm10_caution
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 1000
+        step: 0.1
+        initial_value: 54
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "PM10 Bad Threshold"
+        id: aq_pm10_bad
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 1000
+        step: 0.1
+        initial_value: 155
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "VOC Index Caution Threshold"
+        id: aq_voc_caution
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 500
+        step: 1
+        initial_value: 150
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "VOC Index Bad Threshold"
+        id: aq_voc_bad
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 500
+        step: 1
+        initial_value: 250
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "NOx Index Caution Threshold"
+        id: aq_nox_caution
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 500
+        step: 1
+        initial_value: 150
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "NOx Index Bad Threshold"
+        id: aq_nox_bad
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 500
+        step: 1
+        initial_value: 250
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "Temperature F Red Low"
+        id: aq_temperature_red_low
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 120
+        step: 1
+        initial_value: 60
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "Temperature F Caution Low"
+        id: aq_temperature_caution_low
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 120
+        step: 1
+        initial_value: 68
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "Temperature F Caution High"
+        id: aq_temperature_caution_high
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 120
+        step: 1
+        initial_value: 78
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "Temperature F Red High"
+        id: aq_temperature_red_high
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 120
+        step: 1
+        initial_value: 85
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "Humidity % Red Low"
+        id: aq_humidity_red_low
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 100
+        step: 1
+        initial_value: 20
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "Humidity % Caution Low"
+        id: aq_humidity_caution_low
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 100
+        step: 1
+        initial_value: 30
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "Humidity % Caution High"
+        id: aq_humidity_caution_high
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 100
+        step: 1
+        initial_value: 60
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+      - platform: template
+        name: "Humidity % Red High"
+        id: aq_humidity_red_high
+        entity_category: config
+        optimistic: true
+        restore_value: true
+        min_value: 0
+        max_value: 100
+        step: 1
+        initial_value: 70
+        on_value:
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 7;'
+                then:
+                  - component.update: main_display
+
+# Include the inline SEN66 package only when enabled above.
+# ESPHome merges its sensor entry with the existing V5 sensor entries.
+packages:
+  sen66: ${ sen66_package if sen66_enabled else {} }
+
 # ============================================================================
-# ADVANCED CONFIGURATION — validated V5 firmware behavior unchanged below this line.
+# ADVANCED CONFIGURATION — V4 firmware behavior unchanged below this line.
 # ============================================================================
 
 # Board: Espressif ESP32-S3-DevKitC-1-N16R8V (16 MB Flash Quad, 8 MB PSRAM Octal)
 # Definition: definitions/boards/esp32-s3-devkitc1-n16r8/manifest.yaml
    
 esphome:
-  name: wego-voice-display
-  friendly_name: WeGo Voice Display
+  name: ${device_name}
+  friendly_name: ${friendly_name}
 
   on_boot:
     priority: -100
@@ -134,10 +644,43 @@ globals:
     type: bool
     restore_value: no
     initial_value: 'false'
+  # Increment whenever wallpaper content or selection changes.
+  - id: wallpaper_revision
+    type: uint32_t
+    restore_value: no
+    initial_value: '0' 
+  # Test 9: cached API client connectivity, refreshed by interval below.
+  - id: display_api_connected
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: display_wifi_bucket
+    type: int
+    restore_value: no
+    initial_value: '-99'
+  - id: display_status_revision
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
   - id: current_page
     type: int
     restore_value: no
     initial_value: '0'
+  # Today and tomorrow appointments supplied by HA input_text helpers.
+  - id: calendar_last_day
+    type: int
+    initial_value: "-1"
+  # Alarm editor (24-hour internal representation).
+  - id: alarm_edit_hour
+    type: int
+    initial_value: "7"
+  - id: alarm_edit_minute
+    type: int
+    initial_value: "0"
+  - id: alarm_edit_enabled
+    type: bool
+    initial_value: "false"
+
   # ============================================================
   # Thermostat pending setpoints
   # ============================================================
@@ -265,6 +808,9 @@ globals:
     initial_value: 'false'
     
 http_request:
+  timeout: 15s
+  buffer_size_rx: 2048
+  buffer_size_tx: 512
 
 online_image:
   - url: "https://example.com/wallpaper.jpg"
@@ -276,8 +822,10 @@ online_image:
     on_download_finished:
       then:
         - lambda: |-
-            id(online_background_loaded) = true;
-            ESP_LOGI("wallpaper", "Wallpaper downloaded successfully");
+            id(online_background_loaded) = (id(wallpaper_mode_setting).current_option() == "Daily Rotation" ||
+                                            id(wallpaper_mode_setting).current_option() == "Single Image");
+            id(wallpaper_revision)++;
+            ESP_LOGI("wallpaper", "Wallpaper downloaded successfully (revision %lu)", (unsigned long)id(wallpaper_revision));
         - if:
             condition:
               lambda: 'return id(current_page) == 0;'
@@ -288,6 +836,7 @@ online_image:
       then:
         - lambda: |-
             id(online_background_loaded) = false;
+            id(wallpaper_revision)++;
             ESP_LOGW("wallpaper", "Wallpaper download failed - using built-in background");
         - if:
             condition:
@@ -316,11 +865,17 @@ font:
   - file: "gfonts://Roboto"
     id: button_font
     size: 18
+
+  - file: "gfonts://Roboto"
+    id: calendar_font
+    size: 15
   
 image:
+  # Full-screen opaque RGB565 wallpaper.
   - file: "images/mountain_background.jpg"
     id: mountain_background
     type: RGB565
+    transparency: opaque
     resize: 800x480
 
   - file: "images/home.png"
@@ -466,6 +1021,12 @@ image:
     resize: 72x72
     
 sensor:
+  # Local Wi-Fi RSSI; the existing minute refresh updates the icon.
+  # No on_value display redraw, to avoid extra wallpaper rendering.
+  - platform: wifi_signal
+    id: display_wifi_rssi
+    name: "Display - Wi-Fi Signal"
+    update_interval: 60s
   - platform: homeassistant
     id: weather_temperature
     entity_id: ${weather_entity}
@@ -604,6 +1165,16 @@ sensor:
               - component.update: main_display
 binary_sensor:
   - platform: homeassistant
+    id: alarm_active
+    entity_id: ${alarm_active_entity}
+    on_state:
+      then:
+        - if:
+            condition:
+              lambda: "return id(current_page) == 0 || id(current_page) == 8;"
+            then:
+              - component.update: main_display
+  - platform: homeassistant
     id: light_1_state
     entity_id: ${light_1_entity}
     on_state:
@@ -684,6 +1255,36 @@ binary_sensor:
             then:
               - component.update: main_display
 text_sensor:
+  - platform: homeassistant
+    id: calendar_today_text
+    entity_id: input_text.wego_calendar_today
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 0;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: calendar_tomorrow_text
+    entity_id: input_text.wego_calendar_tomorrow
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(current_page) == 0;'
+            then:
+              - component.update: main_display
+  - platform: homeassistant
+    id: alarm_time_text
+    entity_id: ${alarm_time_entity}
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: "return id(current_page) == 0 || id(current_page) == 8;"
+            then:
+              - component.update: main_display
   - platform: homeassistant
     id: ha_sun_state
     entity_id: sun.sun
@@ -876,10 +1477,164 @@ text_sensor:
 display:
   - platform: mipi_rgb
     model: ESP32-S3-TOUCH-LCD-4.3
+    enable_pin: null
     id: main_display
-    rotation: 0
+    rotation: 180
     update_interval: never
+    auto_clear_enabled: false
     lambda: |-
+      // Retain framebuffer; redraw on wallpaper mode/content revisions.
+      // Skip unchanged home renders; normal image renderer remains the fallback.
+      static int previous_page = -1;
+      static uint32_t last_home_minute = 0xFFFFFFFF;
+      static std::string previous_wallpaper_mode;
+      static uint32_t previous_wallpaper_revision = 0xFFFFFFFF;
+      static uint32_t previous_status_revision = 0xFFFFFFFF;
+      const int requested_page = id(current_page);
+      const bool entering_home = requested_page == 0 && previous_page != 0;
+      previous_page = requested_page;
+      if (requested_page == 0) {
+        // Use synchronized wall-clock minute, not uptime minute.
+        // Keep uptime fallback until Home Assistant time is synchronized.
+        const auto clock_now = id(ha_time).now();
+        const uint32_t current_minute = clock_now.is_valid()
+            ? static_cast<uint32_t>(clock_now.timestamp / 60)
+            : millis() / 60000UL;
+        const std::string selected_wallpaper = id(wallpaper_mode_setting).current_option();
+        if (!entering_home && current_minute == last_home_minute &&
+            selected_wallpaper == previous_wallpaper_mode &&
+            id(wallpaper_revision) == previous_wallpaper_revision &&
+            id(display_status_revision) == previous_status_revision) {
+          return;
+        }
+        last_home_minute = current_minute;
+        previous_wallpaper_mode = selected_wallpaper;
+        previous_wallpaper_revision = id(wallpaper_revision);
+        previous_status_revision = id(display_status_revision);
+      }
+      // ============================================================
+      // V7.5: More menu (page 9) — room for future feature tiles.
+      // ============================================================
+      if (id(current_page) == 9) {
+        it.fill(Color(20, 30, 40));
+        const Color tile(36, 57, 79);
+        it.print(30, 18, id(date_font), Color::WHITE, TextAlign::TOP_LEFT, "More");
+        if (${ 1 if sen66_enabled else 0 }) {
+          it.filled_rectangle(35, 100, 225, 105, tile);
+          it.print(147, 137, id(condition_font), Color::WHITE, TextAlign::TOP_CENTER, "Air Quality");
+        }
+        it.filled_rectangle(290, 100, 225, 105, tile);
+        it.print(402, 137, id(condition_font), Color::WHITE, TextAlign::TOP_CENTER, "Alarm");
+        it.filled_rectangle(30, 397, 160, 60, tile);
+        it.print(110, 427, id(button_font), Color::WHITE, TextAlign::CENTER, "Home");
+        return;
+      }
+
+      // ============================================================
+      // V7.4: Alarm editor (page 8). Changes only commit on Save.
+      // ============================================================
+      if (id(current_page) == 8) {
+        it.fill(Color(20, 30, 40));
+        const Color tile(36, 57, 79);
+        const Color accent(60, 180, 125);
+        it.print(30, 18, id(date_font), Color::WHITE, TextAlign::TOP_LEFT, "Wake-up Alarm");
+        int hour12 = id(alarm_edit_hour) % 12;
+        if (hour12 == 0) hour12 = 12;
+        it.printf(400, 80, id(clock_font), Color::WHITE, TextAlign::TOP_CENTER,
+                  "%d:%02d", hour12, id(alarm_edit_minute));
+        it.print(400, 180, id(condition_font), Color::WHITE, TextAlign::TOP_CENTER,
+                 id(alarm_edit_hour) >= 12 ? "PM" : "AM");
+        it.print(240, 218, id(button_font), Color::WHITE, TextAlign::CENTER, "Hour");
+        it.print(560, 218, id(button_font), Color::WHITE, TextAlign::CENTER, "Minute");
+        it.filled_rectangle(90, 240, 100, 65, tile);
+        it.filled_rectangle(290, 240, 100, 65, tile);
+        it.filled_rectangle(410, 240, 100, 65, tile);
+        it.filled_rectangle(610, 240, 100, 65, tile);
+        it.print(140, 272, id(weather_font), Color::WHITE, TextAlign::CENTER, "-");
+        it.print(340, 272, id(weather_font), Color::WHITE, TextAlign::CENTER, "+");
+        it.print(460, 272, id(weather_font), Color::WHITE, TextAlign::CENTER, "-");
+        it.print(660, 272, id(weather_font), Color::WHITE, TextAlign::CENTER, "+");
+        it.filled_rectangle(265, 322, 270, 48, id(alarm_edit_enabled) ? accent : tile);
+        it.printf(400, 346, id(button_font), Color::WHITE, TextAlign::CENTER,
+                  "Alarm: %s", id(alarm_edit_enabled) ? "ON" : "OFF");
+        it.filled_rectangle(30, 397, 160, 60, tile);
+        it.print(110, 427, id(button_font), Color::WHITE, TextAlign::CENTER, "Cancel");
+        it.filled_rectangle(610, 397, 160, 60, accent);
+        it.print(690, 427, id(button_font), Color::WHITE, TextAlign::CENTER, "Save");
+        return;
+      }
+
+      // ============================================================
+      // V7: Optional SEN66 Air Quality page (page 7)
+      // ============================================================
+      if (id(current_page) == 7 && ${ 1 if sen66_enabled else 0 }) {
+        it.fill(Color(20, 30, 40));
+        const Color tile(36, 57, 79);
+        const Color good(60, 220, 115);
+        const Color caution(255, 205, 45);
+        const Color bad(255, 85, 80);
+        const Color unknown(155, 165, 175);
+        it.print(25, 12, id(date_font), Color::WHITE, TextAlign::TOP_LEFT, "Air Quality");
+        // A reading uses its own warning color; overall air status is the
+        // worst available air pollutant (CO2, PM, VOC, NOx), not comfort.
+        const float values[9] = {
+          ${ "id(sen66_co2).state" if sen66_enabled else "NAN" }, ${ "id(sen66_pm1).state" if sen66_enabled else "NAN" }, ${ "id(sen66_pm25).state" if sen66_enabled else "NAN" }, ${ "id(sen66_pm4).state" if sen66_enabled else "NAN" }, ${ "id(sen66_pm10).state" if sen66_enabled else "NAN" }, ${ "id(sen66_voc).state" if sen66_enabled else "NAN" }, ${ "id(sen66_nox).state" if sen66_enabled else "NAN" }, ${ "id(sen66_temperature).state" if sen66_enabled else "NAN" }, ${ "id(sen66_humidity).state" if sen66_enabled else "NAN" }
+        };
+        const char *labels[9] = {"CO2", "PM1.0", "PM2.5", "PM4.0", "PM10", "VOC", "NOx", "Temperature", "Humidity"};
+        const char *units[9] = {"ppm", "ug/m3", "ug/m3", "ug/m3", "ug/m3", "Index", "Index", "F", "%"};
+        const float caution_at[7] = { ${ "id(aq_co2_caution).state" if sen66_enabled else "NAN" }, ${ "id(aq_pm1_caution).state" if sen66_enabled else "NAN" }, ${ "id(aq_pm25_caution).state" if sen66_enabled else "NAN" }, ${ "id(aq_pm4_caution).state" if sen66_enabled else "NAN" }, ${ "id(aq_pm10_caution).state" if sen66_enabled else "NAN" }, ${ "id(aq_voc_caution).state" if sen66_enabled else "NAN" }, ${ "id(aq_nox_caution).state" if sen66_enabled else "NAN" } };
+        const float bad_at[7] = { ${ "id(aq_co2_bad).state" if sen66_enabled else "NAN" }, ${ "id(aq_pm1_bad).state" if sen66_enabled else "NAN" }, ${ "id(aq_pm25_bad).state" if sen66_enabled else "NAN" }, ${ "id(aq_pm4_bad).state" if sen66_enabled else "NAN" }, ${ "id(aq_pm10_bad).state" if sen66_enabled else "NAN" }, ${ "id(aq_voc_bad).state" if sen66_enabled else "NAN" }, ${ "id(aq_nox_bad).state" if sen66_enabled else "NAN" } };
+        const float temperature_red_low = ${ "id(aq_temperature_red_low).state" if sen66_enabled else "NAN" };
+        const float temperature_caution_low = ${ "id(aq_temperature_caution_low).state" if sen66_enabled else "NAN" };
+        const float temperature_caution_high = ${ "id(aq_temperature_caution_high).state" if sen66_enabled else "NAN" };
+        const float temperature_red_high = ${ "id(aq_temperature_red_high).state" if sen66_enabled else "NAN" };
+        const float humidity_red_low = ${ "id(aq_humidity_red_low).state" if sen66_enabled else "NAN" };
+        const float humidity_caution_low = ${ "id(aq_humidity_caution_low).state" if sen66_enabled else "NAN" };
+        const float humidity_caution_high = ${ "id(aq_humidity_caution_high).state" if sen66_enabled else "NAN" };
+        const float humidity_red_high = ${ "id(aq_humidity_red_high).state" if sen66_enabled else "NAN" };
+        int overall = -1;
+        for (int i = 0; i < 9; ++i) {
+          float v = values[i];
+          if (i == 7 && !isnan(v)) v = v * 9.0f / 5.0f + 32.0f;
+          int level = -1;
+          if (!isnan(v)) {
+            if (i < 7) {
+              // If thresholds are reversed, use the more severe state.
+              level = v >= bad_at[i] ? 2 : (v >= caution_at[i] ? 1 : 0);
+              if (level > overall) overall = level;
+            } else if (i == 7) {
+              level = (v < temperature_red_low || v > temperature_red_high) ? 2 :
+                      ((v < temperature_caution_low || v > temperature_caution_high) ? 1 : 0);
+            } else {
+              level = (v < humidity_red_low || v > humidity_red_high) ? 2 :
+                      ((v < humidity_caution_low || v > humidity_caution_high) ? 1 : 0);
+            }
+          }
+          Color fg = level < 0 ? unknown : (level == 2 ? bad : (level == 1 ? caution : good));
+          const int col = i % 3;
+          const int row = i / 3;
+          const int x = 25 + col * 260;
+          const int y = 73 + row * 102;
+          it.filled_rectangle(x, y, 245, 91, tile);
+          it.print(x + 12, y + 7, id(button_font), Color::WHITE, TextAlign::TOP_LEFT, labels[i]);
+          if (isnan(v)) {
+            it.print(x + 122, y + 28, id(condition_font), unknown, TextAlign::TOP_CENTER, "--");
+          } else if (i == 7 || i == 8 || (i >= 1 && i <= 4)) {
+            it.printf(x + 122, y + 27, id(condition_font), fg, TextAlign::TOP_CENTER, "%.1f", v);
+          } else {
+            it.printf(x + 122, y + 27, id(condition_font), fg, TextAlign::TOP_CENTER, "%.0f", v);
+          }
+          it.print(x + 122, y + 63, id(button_font), Color::WHITE, TextAlign::TOP_CENTER, units[i]);
+        }
+        Color overall_color = overall < 0 ? unknown : (overall == 2 ? bad : (overall == 1 ? caution : good));
+        const char *overall_text = overall < 0 ? "WAITING" : (overall == 2 ? "BAD" : (overall == 1 ? "CAUTION" : "GOOD"));
+        it.printf(775, 21, id(button_font), overall_color, TextAlign::TOP_RIGHT, "Overall: %s", overall_text);
+        it.filled_rectangle(25, 397, 145, 58, tile);
+        it.print(97, 426, id(button_font), Color::WHITE, TextAlign::CENTER, "Home");
+        it.print(195, 416, id(button_font), unknown, TextAlign::TOP_LEFT, "Thresholds adjustable in Home Assistant");
+        return;
+      }
+
       // ============================================================
       // Lighting page
       // ============================================================
@@ -1185,10 +1940,16 @@ display:
         return;
       }
 
-      if (id(online_background_loaded) && id(online_background).is_ready()) {
-        it.image(0, 0, id(online_background));
-      } else {
-        it.image(0, 0, id(mountain_background));
+      // Render on home entry or minute refresh; reuse framebuffer otherwise.
+      it.fill(Color(0, 0, 0));
+      const std::string wallpaper_mode = id(wallpaper_mode_setting).current_option();
+      if (wallpaper_mode != "None") {
+        if (wallpaper_mode != "Default" && id(online_background_loaded) &&
+            id(online_background).is_ready()) {
+          it.image(0, 0, id(online_background));
+        } else {
+          it.image(0, 0, id(mountain_background));
+        }
       }
 
       auto time = id(ha_time).now();
@@ -1210,6 +1971,45 @@ display:
                     TextAlign::TOP_LEFT, "%a, %b %e", time);
       }
 
+      // Alarm appears only when enabled. Tap it to edit; More also opens Alarm.
+      if (id(alarm_active).state && id(alarm_time_text).has_state()) {
+        std::string raw = id(alarm_time_text).state;
+        size_t sep = raw.find_last_of(' ');
+        if (sep != std::string::npos) raw = raw.substr(sep + 1);
+        int ah = -1, am = -1;
+        if (sscanf(raw.c_str(), "%d:%d", &ah, &am) == 2 &&
+            ah >= 0 && ah <= 23 && am >= 0 && am <= 59) {
+          int hour12 = ah % 12;
+          if (hour12 == 0) hour12 = 12;
+          // V7.6: Detailed amber alarm clock, drawn with native primitives.
+          // Dark outline makes it readable on both light and dark wallpapers.
+          const Color amber(255, 193, 60);
+          const Color outline(40, 34, 26);
+          const Color face(38, 50, 62);
+          // Twin bells and their short mounting stems.
+          it.line(51, 214, 47, 208, outline);
+          it.line(69, 214, 73, 208, outline);
+          it.filled_circle(47, 209, 6, outline);
+          it.filled_circle(73, 209, 6, outline);
+          it.filled_circle(47, 209, 4, amber);
+          it.filled_circle(73, 209, 4, amber);
+          // Clock body: outlined amber ring and dark face.
+          it.filled_circle(60, 229, 18, outline);
+          it.filled_circle(60, 228, 16, amber);
+          it.filled_circle(60, 228, 12, face);
+          // Hour and minute hands, plus center pivot.
+          it.line(60, 228, 60, 220, amber);
+          it.line(60, 228, 67, 232, amber);
+          it.filled_circle(60, 228, 2, amber);
+          // Two little feet.
+          it.line(50, 243, 47, 248, amber);
+          it.line(70, 243, 73, 248, amber);
+          it.printf(83, 212, id(condition_font), Color(30, 30, 30), TextAlign::TOP_LEFT,
+                    "%d:%02d %s", hour12, am, ah >= 12 ? "PM" : "AM");
+          it.printf(80, 209, id(condition_font), Color::WHITE, TextAlign::TOP_LEFT,
+                    "%d:%02d %s", hour12, am, ah >= 12 ? "PM" : "AM");
+        }
+      }
       // Current temperature
       if (!isnan(id(weather_temperature).state)) {
         // Shadow
@@ -1279,13 +2079,58 @@ display:
         }
 
         // Weather condition text
-        it.printf(763, 103, id(condition_font), Color(30, 30, 30),
+        it.printf(603, 115, id(condition_font), Color(30, 30, 30),
                   TextAlign::TOP_RIGHT, "%s",
                   condition.c_str());
 
-        it.printf(760, 100, id(condition_font), Color::WHITE,
+        it.printf(600, 112, id(condition_font), Color::WHITE,
                   TextAlign::TOP_RIGHT, "%s",
                   condition.c_str());
+      }
+
+      // V7.7.1: Match the HA automation format: "time title|time title".
+      // Each pipe-separated entry is a complete appointment line.
+      auto draw_calendar_day = [&](const std::string &raw, int x, const char *heading) {
+        if (raw.empty() || raw == "unknown" || raw == "unavailable") return;
+        std::vector<std::string> rows;
+        size_t pos = 0;
+        while (pos < raw.size() && rows.size() < 3) {
+          size_t end = raw.find('|', pos);
+          if (end == std::string::npos) end = raw.size();
+          std::string row = raw.substr(pos, end - pos);
+          if (!row.empty()) rows.push_back(row);
+          pos = end + 1;
+        }
+        if (rows.empty()) return;
+        const Color panel(27, 40, 56);
+        const Color amber(255, 193, 60);
+        it.filled_rectangle(x, 258, 230, 80, panel);
+        it.print(x + 10, 261, id(calendar_font), amber, TextAlign::TOP_LEFT, heading);
+        for (size_t i = 0; i < rows.size(); i++) {
+          std::string row = rows[i];
+          if (row.size() > 29) row = row.substr(0, 28) + "~";
+          int y = 281 + static_cast<int>(i) * 18;
+          it.printf(x + 10, y, id(calendar_font), Color::WHITE,
+                    TextAlign::TOP_LEFT, "%s", row.c_str());
+        }
+      };
+      if (id(calendar_today_text).has_state())
+        draw_calendar_day(id(calendar_today_text).state, 35, "TODAY");
+      if (id(calendar_tomorrow_text).has_state())
+        draw_calendar_day(id(calendar_tomorrow_text).state, 273, "TOMORROW");
+
+      // Optional CO2 glance indicator on the Home wallpaper.
+      if (${ 1 if sen66_enabled else 0 }) {
+        const float co2 = ${ "id(sen66_co2).state" if sen66_enabled else "NAN" };
+        const float warn = ${ "id(aq_co2_caution).state" if sen66_enabled else "NAN" };
+        const float alarm = ${ "id(aq_co2_bad).state" if sen66_enabled else "NAN" };
+        const Color badge_bg(36, 57, 79);
+        const Color badge_fg = isnan(co2) ? Color(155, 165, 175) :
+          (co2 >= alarm ? Color(255, 85, 80) :
+           (co2 >= warn ? Color(255, 205, 45) : Color(60, 220, 115)));
+        it.filled_rectangle(525, 270, 250, 48, badge_bg);
+        if (isnan(co2)) it.print(650, 294, id(button_font), badge_fg, TextAlign::CENTER, "CO2 --");
+        else it.printf(650, 294, id(button_font), badge_fg, TextAlign::CENTER, "CO2 %.0f ppm", co2);
       }
 
       // ============================================================
@@ -1375,11 +2220,48 @@ display:
       it.print(710, 423, id(button_font), Color::WHITE,
                TextAlign::CENTER, "More");
 
+      // Test 10: connection indicators drawn last, using vector primitives.
+      // Move house up/right to clear the weather graphic.
+      const int house_x = 716;
+      const int house_y = 5;
+      const Color house_color = id(display_api_connected)
+          ? Color(65, 225, 110) : Color(235, 70, 70);
+      it.filled_triangle(house_x, house_y + 12,
+                         house_x + 15, house_y,
+                         house_x + 30, house_y + 12, house_color);
+      it.filled_rectangle(house_x + 4, house_y + 12, 22, 19, house_color);
+      it.filled_rectangle(house_x + 12, house_y + 19, 7, 12, Color(28, 39, 48));
+
+      // 44-pixel-wide Wi-Fi glyph drawn directly: no PNG/alpha dependency.
+      // Four signal colors, retaining the same RSSI thresholds as Test 9.
+      const float wifi_dbm = id(display_wifi_rssi).state;
+      const bool wifi_connected = wifi::global_wifi_component->is_connected();
+      const Color wifi_color = !wifi_connected || isnan(wifi_dbm) || wifi_dbm < -80
+          ? Color(235, 70, 70)
+          : wifi_dbm >= -55 ? Color(65, 160, 255)
+          : wifi_dbm >= -70 ? Color(65, 225, 110)
+          : Color(255, 200, 55);
+      const int wifi_cx = 774;
+      const int wifi_cy = 34;
+      // Upper semicircular arcs centered on the bottom dot.
+      // Thick dots produce a smooth, clearly visible icon at 800x480.
+      for (int radius : {21, 14, 7}) {
+        for (int degree = 205; degree <= 335; degree += 3) {
+          const float radians = degree * 0.01745329252f;
+          const int px = wifi_cx + static_cast<int>(radius * cosf(radians));
+          const int py = wifi_cy + static_cast<int>(radius * sinf(radians));
+          it.filled_circle(px, py, 2, wifi_color);
+        }
+      }
+      it.filled_circle(wifi_cx, wifi_cy, 4, wifi_color);
+
+
+
 # Configuration controls appear on the ESPHome device in Home Assistant.
 text:
   - platform: template
-    name: "Wallpaper URL or Folder"
-    id: wallpaper_url_setting
+    name: "Display - Wallpaper Folder URL"
+    id: wallpaper_folder_url_setting
     entity_category: config
     mode: text
     optimistic: true
@@ -1389,11 +2271,26 @@ text:
     set_action:
       - if:
           condition:
-            lambda: 'return id(wallpaper_custom_mode);'
+            lambda: 'return id(wallpaper_mode_setting).current_option() == "Daily Rotation";'
           then:
             - script.execute: load_daily_wallpaper
   - platform: template
-    name: "Backlight ON Time (HH:MM)"
+    name: "Display - Wallpaper Image URL"
+    id: wallpaper_image_url_setting
+    entity_category: config
+    mode: text
+    optimistic: true
+    restore_value: true
+    max_length: 255
+    initial_value: ""
+    set_action:
+      - if:
+          condition:
+            lambda: 'return id(wallpaper_mode_setting).current_option() == "Single Image";'
+          then:
+            - script.execute: load_daily_wallpaper
+  - platform: template
+    name: "Display - Backlight ON Time (HH:MM)"
     id: backlight_on_time
     entity_category: config
     optimistic: true
@@ -1404,7 +2301,7 @@ text:
     set_action:
       - script.execute: apply_backlight_schedule
   - platform: template
-    name: "Backlight OFF Time (HH:MM)"
+    name: "Display - Backlight OFF Time (HH:MM)"
     id: backlight_off_time
     entity_category: config
     optimistic: true
@@ -1417,20 +2314,22 @@ text:
 
 select:
   - platform: template
-    name: "Wallpaper Mode"
+    name: "Display - Wallpaper Mode"
     id: wallpaper_mode_setting
     entity_category: config
     optimistic: true
     restore_value: true
     options:
+      - "None"
+      - "Default"
       - "Daily Rotation"
       - "Single Image"
-    initial_option: "Daily Rotation"
+    initial_option: "None"
     set_action:
       - lambda: id(wallpaper_custom_mode) = (x == "Single Image");
       - script.execute: load_daily_wallpaper
   - platform: template
-    name: "Backlight Mode"
+    name: "Display - Backlight Mode"
     id: backlight_mode_setting
     entity_category: config
     optimistic: true
@@ -1453,14 +2352,14 @@ select:
 
 button:
   - platform: template
-    name: "Refresh Wallpaper"
+    name: "Display - Refresh Wallpaper"
     entity_category: config
     on_press:
       - script.execute: load_daily_wallpaper
 
 switch:
   - platform: gpio
-    name: "Display Backlight"
+    name: "Display - Display Backlight"
     id: display_backlight
     entity_category: config
     restore_mode: ALWAYS_ON
@@ -1472,28 +2371,68 @@ switch:
       inverted: false
 
 script:
+  - id: save_alarm_changes
+    mode: single
+    then:
+      - homeassistant.action:
+          action: input_datetime.set_datetime
+          data:
+            entity_id: ${alarm_time_entity}
+          data_template:
+            time: !lambda |-
+              char buf[9];
+              snprintf(buf, sizeof(buf), "%02d:%02d:00", id(alarm_edit_hour), id(alarm_edit_minute));
+              return std::string(buf);
+      - if:
+          condition:
+            lambda: 'return id(alarm_edit_enabled);'
+          then:
+            - homeassistant.action:
+                action: input_boolean.turn_on
+                data:
+                  entity_id: ${alarm_active_entity}
+          else:
+            - homeassistant.action:
+                action: input_boolean.turn_off
+                data:
+                  entity_id: ${alarm_active_entity}
+
   # Shared by startup, midnight rollover, and wallpaper settings.
 
   - id: load_daily_wallpaper
     mode: restart
     then:
       - lambda: |-
-          std::string base = id(wallpaper_url_setting).state;
-          // Remove trailing slashes from the configured folder URL.
-          while (!base.empty() && base.back() == '/') base.pop_back();
-          if (base.empty()) {
+          const std::string mode = id(wallpaper_mode_setting).current_option();
+          id(wallpaper_revision)++; // Force repaint even in the same minute.
+
+          // None: black screen. Default: built-in mountain wallpaper.
+          // Neither mode needs an HTTP download.
+          if (mode == "None" || mode == "Default") {
             id(online_background_loaded) = false;
-            ESP_LOGW("wallpaper", "No wallpaper URL configured; using built-in mountain image");
-            id(main_display).update();
+            ESP_LOGI("wallpaper", "Using %s background (no download)", mode.c_str());
+            if (id(current_page) == 0) id(main_display).update();
             return;
           }
-          std::string url = base;
-          if (!id(wallpaper_custom_mode)) {
+
+          // Each online mode has its own stored URL.
+          std::string url = (mode == "Single Image")
+              ? id(wallpaper_image_url_setting).state
+              : id(wallpaper_folder_url_setting).state;
+          if (url.empty()) {
+            id(online_background_loaded) = false;
+            ESP_LOGW("wallpaper", "No URL configured for selected wallpaper mode; using built-in mountain image");
+            if (id(current_page) == 0) id(main_display).update();
+            return;
+          }
+          if (mode == "Daily Rotation") {
+            // Append exactly one weekday filename to the folder URL.
+            while (!url.empty() && url.back() == '/') url.pop_back();
             auto now = id(ha_time).now();
             if (!now.is_valid()) {
               ESP_LOGW("wallpaper", "Time not valid yet; using built-in mountain image");
               id(online_background_loaded) = false;
-              id(main_display).update();
+              if (id(current_page) == 0) id(main_display).update();
               return;
             }
             const char *days[] = {"", "sunday", "monday", "tuesday", "wednesday",
@@ -1504,6 +2443,7 @@ script:
             url += ".jpg";
           }
           id(online_background_loaded) = false;
+          if (id(current_page) == 0) id(main_display).update();
           ESP_LOGI("wallpaper", "Loading wallpaper: %s", url.c_str());
           id(online_background).set_url(url);
           id(online_background).update();
@@ -2017,7 +2957,7 @@ touchscreen:
   - platform: gt911
     id: main_touchscreen
     display: main_display
-
+      
     interrupt_pin: GPIO4
 
     reset_pin:
@@ -2029,6 +2969,11 @@ touchscreen:
       x_max: 800
       y_min: 0
       y_max: 480
+    
+    transform:
+      mirror_x: true
+      mirror_y: true
+      swap_xy: false
       
     on_release:
       - lambda: |-
@@ -2043,6 +2988,51 @@ touchscreen:
             return;
           }
           ESP_LOGI("touch", "Touched X=%d, Y=%d", touch.x, touch.y);
+
+           // Alarm editor (page 8).
+           if (id(current_page) == 8) {
+             if (touch.y >= 240 && touch.y <= 305) {
+               if (touch.x >= 90 && touch.x <= 190) id(alarm_edit_hour) = (id(alarm_edit_hour) + 23) % 24;
+               else if (touch.x >= 290 && touch.x <= 390) id(alarm_edit_hour) = (id(alarm_edit_hour) + 1) % 24;
+               else if (touch.x >= 410 && touch.x <= 510) id(alarm_edit_minute) = (id(alarm_edit_minute) + 59) % 60;
+               else if (touch.x >= 610 && touch.x <= 710) id(alarm_edit_minute) = (id(alarm_edit_minute) + 1) % 60;
+               id(main_display).update(); return;
+             }
+             if (touch.x >= 265 && touch.x <= 535 && touch.y >= 322 && touch.y <= 370) {
+               id(alarm_edit_enabled) = !id(alarm_edit_enabled);
+               id(main_display).update(); return;
+             }
+             if (touch.y >= 397 && touch.y <= 457) {
+               if (touch.x >= 30 && touch.x <= 190) {
+                 id(current_page) = 0; id(main_display).update(); return;
+               }
+               if (touch.x >= 610 && touch.x <= 770) {
+                 id(save_alarm_changes).execute();
+                 id(current_page) = 0; id(main_display).update(); return;
+               }
+             }
+             return;
+           }
+           // Home alarm indicator or More > Alarm opens editor.
+           if ((id(current_page) == 0 && id(alarm_active).state &&
+                touch.x >= 42 && touch.x <= 300 && touch.y >= 202 && touch.y <= 259) ||
+               (id(current_page) == 9 && touch.x >= 290 && touch.x <= 515 &&
+                touch.y >= 100 && touch.y <= 205)) {
+             id(alarm_edit_enabled) = id(alarm_active).state;
+             int h = 7, m = 0;
+             if (id(alarm_time_text).has_state()) {
+               std::string raw = id(alarm_time_text).state;
+               size_t sep = raw.find_last_of(' ');
+               if (sep != std::string::npos) raw = raw.substr(sep + 1);
+               if (sscanf(raw.c_str(), "%d:%d", &h, &m) != 2 || h < 0 || h > 23 || m < 0 || m > 59) {
+                 h = 7; m = 0;
+               }
+             }
+             id(alarm_edit_hour) = h;
+             id(alarm_edit_minute) = m;
+             id(current_page) = 8;
+             id(main_display).update(); return;
+           }
 
            // Lighting: same hitboxes as the generated tile layout.
            if (id(current_page) == 1) {
@@ -2207,6 +3197,45 @@ touchscreen:
           }
           }
       
+           // More on Home opens the extensible menu.
+           if (id(current_page) == 0 &&
+               touch.x >= 640 && touch.x <= 780 && touch.y >= 347 && touch.y <= 450) {
+             id(current_page) = 9;
+             id(main_display).update();
+             return;
+           }
+           // Air Quality tile in More.
+           if (id(current_page) == 9 && ${ 1 if sen66_enabled else 0 } &&
+               touch.x >= 35 && touch.x <= 260 && touch.y >= 100 && touch.y <= 205) {
+             id(current_page) = 7;
+             id(main_display).update();
+             return;
+           }
+           // More menu Home button.
+           if (id(current_page) == 9 && touch.x >= 30 && touch.x <= 190 &&
+               touch.y >= 397 && touch.y <= 457) {
+             id(current_page) = 0;
+             id(main_display).update();
+             return;
+           }
+           if (id(current_page) == 9) return;
+           // Home-page CO2 badge also opens Air Quality.
+           if (id(current_page) == 0 && ${ 1 if sen66_enabled else 0 } &&
+               touch.x >= 525 && touch.x <= 775 && touch.y >= 270 && touch.y <= 318) {
+             id(current_page) = 7;
+             id(main_display).update();
+             return;
+           }
+           // Air Quality Home button.
+           if (id(current_page) == 7 && touch.x >= 25 && touch.x <= 170 &&
+               touch.y >= 397 && touch.y <= 455) {
+             id(current_page) = 0;
+             id(main_display).update();
+             return;
+           }
+
+           if (id(current_page) == 7) return;
+
           // Climate button
           if (touch.x >= 330 && touch.x <= 470 &&
             touch.y >= 347 && touch.y <= 450) {
@@ -2234,6 +3263,37 @@ touchscreen:
             return;
           }
           
+# Test 9: update connection indicators on changes, not just at the next minute.
+interval:
+  - interval: 2s
+    then:
+      - if:
+          condition:
+            api.connected:
+          then:
+            - lambda: |-
+                if (!id(display_api_connected)) {
+                  id(display_api_connected) = true;
+                  id(display_status_revision)++;
+                  if (id(current_page) == 0) id(main_display).update();
+                }
+          else:
+            - lambda: |-
+                if (id(display_api_connected)) {
+                  id(display_api_connected) = false;
+                  id(display_status_revision)++;
+                  if (id(current_page) == 0) id(main_display).update();
+                }
+      - lambda: |-
+          const float rssi = id(display_wifi_rssi).state;
+          const int bucket = !wifi::global_wifi_component->is_connected() || isnan(rssi) || rssi < -80 ? 0
+              : rssi >= -55 ? 3 : rssi >= -70 ? 2 : 1;
+          if (bucket != id(display_wifi_bucket)) {
+            id(display_wifi_bucket) = bucket;
+            id(display_status_revision)++;
+            if (id(current_page) == 0) id(main_display).update();
+          }
+
 time:
   - platform: homeassistant
     id: ha_time
@@ -2255,3 +3315,20 @@ time:
                 - component.update: main_display
     
 logger:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${device_name} Setup"
+    password: !secret fallback_ap_password
+
+captive_portal:

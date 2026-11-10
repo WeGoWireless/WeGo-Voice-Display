@@ -1,6 +1,6 @@
 # WeGo Voice Display V1.1.0 — public release candidate
 
-This is a **candidate for validation**, not a confirmed tested release. Based on the working V7.5 YAML supplied by the project owner.
+This is a **candidate for validation**, not a confirmed tested release. Based on the working V1.1.0 YAML supplied by the project owner.
 
 ## Changes
 - Added `device_name` and `friendly_name` substitutions at the top.

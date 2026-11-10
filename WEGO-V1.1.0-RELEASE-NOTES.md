@@ -1,4 +1,4 @@
-# WeGo Voice Display V7.6 — public release candidate
+# WeGo Voice Display V1.1.0 — public release candidate
 
 This is a **candidate for validation**, not a confirmed tested release. Based on the working V7.5 YAML supplied by the project owner.
 
